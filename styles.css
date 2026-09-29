@@ -16,6 +16,7 @@
   --on-primary: #ffffff;
   --deep: #0b1b33;
   --on-deep: #ffffff;
+  --white: #ffffff;
   --on-deep-muted: #a9b4c4;
   --link: #2563eb;
   --gold: #a16207;
@@ -179,8 +180,8 @@ ul { margin: 0; padding: 0; list-style: none; }
 .btn-quiet { background: var(--bg-alt); color: var(--fg); }
 .btn-quiet:hover { background: var(--border-soft); }
 .btn-light { background: var(--on-deep); color: var(--deep); }
-.btn-light:hover { background: #e9edf3; }
-.btn-danger { background: var(--danger); color: #fff; }
+.btn-light:hover { background: var(--border-soft); }
+.btn-danger { background: var(--danger); color: var(--white); }
 .btn-danger:hover { filter: brightness(0.93); }
 .btn-sm { min-height: 36px; padding: 0 16px; font-size: 14px; }
 .btn-lg { min-height: 52px; padding: 0 28px; font-size: 17px; }
@@ -227,7 +228,7 @@ ul { margin: 0; padding: 0; list-style: none; }
 .god-ribbon strong { color: var(--gold-light); font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
 .god-ribbon strong svg { width: 15px; height: 15px; }
 .god-ribbon .seg { background: rgba(255,255,255,.08); }
-.god-ribbon .seg button { color: var(--on-deep-muted); min-height: 28px; padding: 0 12px; font-size: 13px; }
+.god-ribbon .seg button { color: var(--on-deep-muted); min-height: 32px; padding: 0 12px; font-size: 13px; }
 .god-ribbon .seg button[aria-pressed="true"] { background: var(--gold-light); color: var(--deep); }
 
 /* ---------- Navigation globale ---------- */
@@ -467,8 +468,8 @@ section.band.deep { background: var(--deep); color: var(--on-deep); }
 .tile-projets > * { position: relative; }
 .tile-skool { grid-column: span 2; background: var(--primary); color: var(--on-primary); border-color: transparent; }
 .tile-skool p { color: rgba(255,255,255,.78); }
-.tile-skool .t-go { color: #fff; }
-.tile-skool .t-icon { background: rgba(255,255,255,.12); color: #fff; }
+.tile-skool .t-go { color: var(--white); }
+.tile-skool .t-icon { background: rgba(255,255,255,.12); color: var(--white); }
 .levels { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 .levels span {
   width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
@@ -727,7 +728,7 @@ a.card:hover, button.card:hover, .card.clickable:hover { transform: translateY(-
 .level-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; border-radius: var(--r-sm); font-size: 14px; }
 .level-row .lv { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 600; font-size: 13px; background: var(--bg-alt); color: var(--muted); }
 .level-row.current { background: var(--gold-tint); }
-.level-row.current .lv { background: var(--gold); color: #fff; }
+.level-row.current .lv { background: var(--gold); color: var(--white); }
 
 /* ---------- Accompagnement ---------- */
 .offers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: stretch; }
@@ -762,7 +763,7 @@ a.card:hover, button.card:hover, .card.clickable:hover { transform: translateY(-
 }
 a.check-row:hover { background: var(--border-soft); }
 .check-row .tick { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center; flex: none; color: transparent; transition: all var(--t-mid) var(--ease); }
-.check-row.done .tick { background: var(--success); border-color: var(--success); color: #fff; }
+.check-row.done .tick { background: var(--success); border-color: var(--success); color: var(--white); }
 .check-row.done .label { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--border); }
 .check-row .tick svg { width: 16px; height: 16px; }
 .check-row .go { margin-left: auto; color: var(--muted); }
@@ -781,7 +782,7 @@ td .icon-btn svg { width: 17px; height: 17px; }
 .switch { position: relative; width: 51px; height: 31px; flex: none; }
 .switch input { position: absolute; inset: 0; opacity: 0; cursor: pointer; margin: 0; z-index: 1; }
 .switch span { position: absolute; inset: 0; border-radius: 31px; background: var(--border); transition: background-color var(--t-mid) var(--ease); }
-.switch span::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.2); transition: transform var(--t-mid) var(--ease); }
+.switch span::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: var(--white); box-shadow: 0 2px 6px rgba(0,0,0,.2); transition: transform var(--t-mid) var(--ease); }
 .switch input:checked + span { background: var(--success); }
 .switch input:checked + span::after { transform: translateX(20px); }
 .switch input:focus-visible + span { outline: 3px solid var(--ring); outline-offset: 2px; }
@@ -994,6 +995,13 @@ td .icon-btn svg { width: 17px; height: 17px; }
   .article-row h3 { font-size: 23px; }
   .announce { padding: 10px 44px 10px 16px; text-align: left; }
   .god-ribbon { justify-content: flex-start; }
+}
+
+/* Cibles tactiles : 44 px minimum sur ecran tactile (DESIGN.md section 6) */
+@media (pointer: coarse) {
+  .btn-sm, .chip, .seg button, .god-ribbon .seg button, .post-actions button, .post-actions a,
+  .votes button, .team-link, .subnav a, .side-link, td .icon-btn, .footer li a, .footer li button { min-height: 44px; }
+  .votes button, td .icon-btn { min-width: 44px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

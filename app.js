@@ -36,6 +36,11 @@
   };
   const save = (...keys) => keys.forEach(k => store.set(k, S[k]));
 
+  // Mode demo : raccourcis de roles visibles seulement avec ?demo=1 (memorise). Sans lui, l'acces equipe reste ferme.
+  if (/[?&]demo=1/.test(location.search)) store.set('demo', true);
+  if (/[?&]demo=0/.test(location.search)) store.set('demo', false);
+  const DEMO = store.get('demo', false);
+
   // ---------- Roles ----------
   const RANK = { guest: 0, member: 1, admin: 2, god: 3 };
   const ROLE = {
@@ -247,7 +252,8 @@
     else if (route.skel && !seen.has(p.name) && !reduceMotion()) {
       seen.add(p.name);
       html = viewSkeleton();
-      setTimeout(() => { if (parse().name === p.name) paint(route.v(p), route, p, true); }, 260);
+      const h0 = location.hash;
+      setTimeout(() => { if (location.hash === h0) paint(route.v(parse()), route, parse(), true); }, 260);
     } else html = route.v(p);
     paint(html, route, p);
   }
@@ -1016,7 +1022,7 @@
         <div class="grid-2">
           <section class="panel reveal">
             <div class="panel-head"><h2>Ton parcours</h2></div>
-            ${S.quiz ? `<p class="result-title" style="font-size:24px">${PARCOURS[S.quiz.but]}</p><div class="result-tags"><span class="badge badge-admin">${DEPART[S.quiz.niveau]}</span><span class="badge badge-member">${RYTHME[S.quiz.temps]}</span></div><button type="button" class="btn btn-sm btn-quiet" data-action="start">${ic('rotate-ccw')}Refaire le test</button>`
+            ${S.quiz ? `<p class="result-title" style="font-size:24px">${PARCOURS[S.quiz.but]}</p><div class="result-tags"><span class="badge badge-admin">${DEPART[S.quiz.niveau]}</span><span class="badge badge-member">${RYTHME[S.quiz.temps]}</span></div><button type="button" class="btn btn-sm btn-quiet" data-action="quiz-restart">${ic('rotate-ccw')}Refaire le test</button>`
               : `<p class="muted small" style="margin-bottom:16px">Trois questions pour savoir par où commencer.</p><button type="button" class="btn btn-primary" data-action="start">Choisir mon parcours</button>`}
           </section>
           <section class="panel reveal">
@@ -1252,13 +1258,14 @@
       <div class="field"><label for="${id}">${label}</label>
         ${type === 'password' ? `<div class="pw-wrap"><input id="${id}" name="${id.split('-')[1]}" class="input" type="password" ${extra}><button type="button" class="icon-btn" data-action="pw-toggle" aria-label="Afficher le mot de passe">${ic('eye')}</button></div>` : `<input id="${id}" name="${id.split('-')[1]}" class="input" type="${type}" ${extra}>`}
         ${help ? `<span class="help">${help}</span>` : ''}<span class="err">${ic('triangle-alert')}<span>${err}</span></span></div>`;
-    const demo = `<div class="demo-box"><p><strong>Démo.</strong> Aucun serveur n'est branché : choisis un rôle pour visiter.</p>
+    let demo = `<div class="demo-box"><p><strong>Démo.</strong> Aucun serveur n'est branché : choisis un rôle pour visiter.</p>
       <div class="demo-roles">
         <button type="button" data-action="demo" data-v="member">${ic('user-round')}Membre</button>
         <button type="button" data-action="demo" data-v="admin">${ic('shield-check')}Admin</button>
         <button type="button" class="god" data-action="demo" data-v="god">${ic('crown')}God mode</button>
       </div></div>`;
     let html = `<button type="button" class="icon-btn modal-close" data-action="close" aria-label="Fermer">${ic('x')}</button>`;
+    if (!DEMO) demo = '';
     if (mode === 'signup') {
       html += `<h2>${quizDone ? 'Garde ton parcours.' : 'Crée ton compte.'}</h2>
         <p class="sub">${context || (quizDone ? `${PARCOURS[S.quiz.but]}, prêt à démarrer.` : 'Gratuit. Ta progression et tes messages sont gardés.')}</p>
@@ -1298,7 +1305,7 @@
           <div class="otp" role="group" aria-label="Code à 6 chiffres">${[0, 1, 2, 3, 4, 5].map(i => `<input inputmode="numeric" maxlength="1" autocomplete="${i === 0 ? 'one-time-code' : 'off'}" aria-label="Chiffre ${i + 1}" data-otp="${i}">`).join('')}</div>
           <p class="err small" style="color:var(--danger);margin-top:10px;display:none" id="otp-err">Le code doit contenir 6 chiffres.</p>
           <button class="btn btn-primary btn-block btn-lg" style="margin-top:20px" type="submit">Ouvrir le god mode</button>
-          <p class="tiny muted" style="margin-top:12px;text-align:center">Démo : n'importe quel code à 6 chiffres est accepté.</p>
+          ${DEMO ? `<p class="tiny muted" style="margin-top:12px;text-align:center">Démo : n'importe quel code à 6 chiffres est accepté.</p>` : ''}
         </form>`;
     }
     openLayer(html, 'modal', mode === 'signup' ? 'Créer un compte' : mode === 'team' ? 'Accès équipe' : mode === 'otp' ? 'Code de vérification' : 'Connexion');
@@ -1449,9 +1456,8 @@
     const scrollToQuiz = () => {
       const q = $('#quiz');
       if (!q) return;
-      if (S.quiz) { S.quiz = null; save('quiz'); quizStep = 0; quizAnswers = {}; refreshQuiz(); }
       q.scrollIntoView({ behavior: reduceMotion() ? 'auto' : 'smooth', block: 'center' });
-      setTimeout(() => { const o = $('.option', q); o && o.focus({ preventScroll: true }); }, 450);
+      setTimeout(() => { const o = $('.option, .result-actions .btn', q); o && o.focus({ preventScroll: true }); }, 450);
     };
     if (parse().name !== '') { location.hash = '#/'; setTimeout(scrollToQuiz, 120); } else scrollToQuiz();
   }
@@ -1519,6 +1525,7 @@
       }, reduceMotion() ? 0 : 240);
     },
     'quiz-back': () => { quizStep = Math.max(0, quizStep - 1); refreshQuiz(); },
+    'quiz-restart': () => { S.quiz = null; save('quiz'); quizStep = 0; quizAnswers = {}; startFlow(); },
     'quiz-reset': () => { S.quiz = null; save('quiz'); quizStep = 0; quizAnswers = {}; refreshQuiz(); const o = $('#quiz .option'); o && o.focus(); },
     filter: el => { filters[el.dataset.f] = el.dataset.v; render(); },
     'reset-filters': () => { filters = { formations: 'Tous', articles: 'Tous', q: '' }; render(); },
@@ -1684,6 +1691,10 @@
       const email = fd.email.trim().toLowerCase();
       const m = S.members.find(x => x.email === email);
       signIn({ name: m ? m.name : email.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()), email, role: m ? m.role : 'member' }, false);
+    });
+    else if (kind === 'team' && !DEMO) withLoading(btn, () => {
+      const f = $('#tm-pass', form).closest('.field');
+      f.classList.add('invalid'); $('.err span', f).textContent = "L'accès équipe n'est pas encore ouvert sur ce site.";
     });
     else if (kind === 'team') withLoading(btn, () => {
       const email = fd.email.trim().toLowerCase();
