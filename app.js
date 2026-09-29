@@ -37,8 +37,8 @@
   const save = (...keys) => keys.forEach(k => store.set(k, S[k]));
 
   // Mode demo : raccourcis de roles visibles seulement avec ?demo=1 (memorise). Sans lui, l'acces equipe reste ferme.
-  if (/[?&]demo=1/.test(location.search)) store.set('demo', true);
-  if (/[?&]demo=0/.test(location.search)) store.set('demo', false);
+  if (/[?&]demo=1/.test(location.search)) store.set('demo', true);
+  if (/[?&]demo=0/.test(location.search)) store.set('demo', false);
   const DEMO = store.get('demo', false);
 
   // ---------- Roles ----------
