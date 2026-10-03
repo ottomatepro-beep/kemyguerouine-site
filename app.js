@@ -1,5 +1,5 @@
 /* =========================================================
-   OTTOTECH - application (maquette navigable)
+   FVIA (Formez-vous à l'IA) - application
    Routeur par ancre, trois roles (membre, admin, god mode), donnees locales.
    IMPORTANT : la connexion est simulee dans le navigateur. Avant mise en ligne,
    les roles doivent etre verifies par un serveur. Rien ici n'est une securite.
@@ -8,15 +8,25 @@
   'use strict';
 
   // ---------- Stockage local (protege : navigation privee, stockage bloque) ----------
-  const PREFIX = 'ottotech:';
+  const PREFIX = 'fvia:';
+  // Reprise des donnees enregistrees sous l'ancien nom (OTTOTECH)
+  try { Object.keys(localStorage).filter(k => k.startsWith('ottotech:')).forEach(k => { const n = 'fvia:' + k.slice(9); if (localStorage.getItem(n) === null) localStorage.setItem(n, localStorage.getItem(k)); localStorage.removeItem(k); }); } catch (e) {}
   const store = {
     get(k, d) { try { const v = localStorage.getItem(PREFIX + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(PREFIX + k, JSON.stringify(v)); } catch (e) { /* stockage indisponible : l'etat reste en memoire */ } },
     clear() { try { Object.keys(localStorage).filter(k => k.startsWith(PREFIX)).forEach(k => localStorage.removeItem(k)); } catch (e) {} }
   };
 
-  const EMPTY_DATA = () => ({ formations: [], articles: [], nouveautes: [], projets: [], posts: [], evenements: [] });
-  const DEFAULT_FLAGS = { forum: true, projets: true, evenements: true, classement: true, membres: true, accompagnement: true };
+  const EMPTY_DATA = () => ({ cours: [], videos: [], ateliers: [], exercices: [], rendus: [], articles: [], nouveautes: [], projets: [], posts: [], evenements: [] });
+  // Credits : sur le site, les clients qui paient directement debloquent le contenu avec des credits
+  // (Skool sert le parcours CPF, avec le meme contenu). Valeurs par defaut, reglables dans la console.
+  const COUT_DEFAUT = { cours: 1, videos: 1, ateliers: 2, exercices: 1, articles: 0 };
+  const PACKS_DEFAUT = [
+    { id: 'decouverte', nom: 'Découverte', credits: 10, prix: '' },
+    { id: 'essentiel', nom: 'Essentiel', credits: 30, prix: '', reco: true },
+    { id: 'integral', nom: 'Intégral', credits: 80, prix: '' }
+  ];
+  const DEFAULT_FLAGS = { forum: true, projets: true, evenements: true, classement: true, membres: true, accompagnement: true, ateliers: true, exercices: true };
 
   const S = {
     user: store.get('user', null),
@@ -32,9 +42,16 @@
     theme: store.get('theme', 'light'),
     announceClosed: store.get('announceClosed', ''),
     members: store.get('members', []),
-    waitlist: store.get('waitlist', [])
+    waitlist: store.get('waitlist', []),
+    retractations: store.get('retractations', []),
+    wallets: store.get('wallets', {})
   };
+  S.settings.cout = Object.assign({}, COUT_DEFAUT, S.settings.cout || {});
+  if (!Array.isArray(S.settings.packs) || S.settings.packs.length !== 3) S.settings.packs = PACKS_DEFAUT.map(p => ({ ...p }));
+  if (typeof S.settings.bienvenue !== 'number') S.settings.bienvenue = 0;
   const save = (...keys) => keys.forEach(k => store.set(k, S[k]));
+  // Ancienne rubrique "formations" (videos) : on la range dans "videos"
+  if (S.data.formations) { S.data.videos = S.data.videos.concat(S.data.formations); delete S.data.formations; save('data'); }
 
   // Mode demo : raccourcis de roles visibles seulement avec ?demo=1 (memorise). Sans lui, l'acces equipe reste ferme.
   if (/[?&]demo=1/.test(location.search)) store.set('demo', true);
@@ -56,10 +73,15 @@
 
   const PERMS = [
     ['Lire les contenus publics', 'guest'],
-    ['Suivre les formations et garder sa progression', 'member'],
+    ['Suivre les cours et les vidéos, garder sa progression', 'member'],
+    ['Rendre un exercice et recevoir sa correction', 'member'],
+    ['Débloquer un contenu avec ses crédits', 'member'],
     ['Publier dans la communauté et voter', 'member'],
     ['Partager un projet', 'member'],
-    ['Créer formations, articles, nouveautés, événements', 'admin'],
+    ['Créer cours, vidéos, ateliers, exercices, articles', 'admin'],
+    ['Corriger les exercices rendus', 'admin'],
+    ['Accéder à tout le contenu sans crédit', 'admin'],
+    ['Régler les prix, les packs et offrir des crédits', 'admin'],
     ['Modérer : épingler et supprimer', 'admin'],
     ['Voir les membres et les réglages du site', 'admin'],
     ['Activer ou couper une fonctionnalité', 'god'],
@@ -108,8 +130,9 @@
     const fromPosts = posts.reduce((a, p) => a + Math.max(0, p.score || 0), 0) + posts.length;
     const fromReplies = S.data.posts.reduce((a, p) => a + (p.replies || []).filter(r => r.authorEmail === email && r.date >= since).length, 0);
     const fromProjects = S.data.projets.filter(p => p.authorEmail === email && p.date >= since).length * 3;
+    const fromRendus = S.data.rendus.filter(r => r.email === email && r.date >= since).length * 5;
     const fromLearning = !since && email === (S.user && S.user.email) ? Object.values(S.progress).filter(v => v >= 100).length * 10 : 0;
-    return fromPosts + fromReplies + fromProjects + fromLearning;
+    return fromPosts + fromReplies + fromProjects + fromRendus + fromLearning;
   }
   function levelOf(pts) {
     let lv = 1;
@@ -167,18 +190,49 @@
 
   // ---------- Schemas de creation (tiroir generique) ----------
   const SCHEMAS = {
-    formations: { title: 'Nouvelle formation', done: 'Formation publiée', min: 'admin', fields: [
-      { k: 'titre', l: 'Titre', req: true, ph: 'Par exemple : Ta première automatisation' },
+    cours: { title: 'Nouveau cours', done: 'Cours publié', min: 'admin', fields: [
+      { k: 'titre', l: 'Titre', req: true, ph: 'Par exemple : Comprendre une API sans jargon' },
+      { k: 'parcours', l: 'Parcours', type: 'select', opts: 'parcours' },
       { k: 'niveau', l: 'Niveau', type: 'select', opts: ['Débutant', 'Intermédiaire', 'Avancé'] },
-      { k: 'duree', l: 'Durée', help: 'Par exemple : 45 min' },
+      { k: 'duree', l: 'Temps de lecture', help: 'Par exemple : 8 min' },
+      { k: 'description', l: 'Résumé', type: 'textarea', req: true, help: 'Deux phrases, affichées dans la liste.' },
+      { k: 'contenu', l: 'Le cours', type: 'textarea', rows: 14 },
+      { k: 'credits', l: 'Crédits pour débloquer', type: 'number', help: 'Vide : le coût par défaut du format (réglable dans Réglages). 0 : gratuit.' }
+    ] },
+    videos: { title: 'Nouvelle vidéo', done: 'Vidéo publiée', min: 'admin', fields: [
+      { k: 'titre', l: 'Titre', req: true, ph: 'Par exemple : Ta première automatisation' },
+      { k: 'parcours', l: 'Parcours', type: 'select', opts: 'parcours' },
+      { k: 'niveau', l: 'Niveau', type: 'select', opts: ['Débutant', 'Intermédiaire', 'Avancé'] },
+      { k: 'duree', l: 'Durée', help: 'Par exemple : 18 min' },
       { k: 'video', l: 'Lien de la vidéo', type: 'url', help: 'Facultatif. YouTube, Vimeo ou fichier.' },
-      { k: 'description', l: 'Description', type: 'textarea', req: true }
+      { k: 'description', l: 'Description', type: 'textarea', req: true },
+      { k: 'credits', l: 'Crédits pour débloquer', type: 'number', help: 'Vide : le coût par défaut du format (réglable dans Réglages). 0 : gratuit.' }
+    ] },
+    ateliers: { title: 'Nouvel atelier', done: 'Atelier programmé', min: 'admin', fields: [
+      { k: 'titre', l: 'Titre', req: true, ph: 'Par exemple : On met ton site en ligne' },
+      { k: 'date', l: 'Date', type: 'date', req: true },
+      { k: 'heure', l: 'Heure', type: 'time' },
+      { k: 'duree', l: 'Durée', help: 'Par exemple : 1 h 30' },
+      { k: 'format', l: 'Format', type: 'select', opts: ['En direct', 'Replay'] },
+      { k: 'lien', l: 'Lien', type: 'url', help: "Facultatif. Le lien de visio pour le direct, ou celui du replay une fois l'atelier passé." },
+      { k: 'description', l: 'Ce que vous allez construire', type: 'textarea' },
+      { k: 'credits', l: 'Crédits pour débloquer', type: 'number', help: 'Vide : le coût par défaut du format (réglable dans Réglages). 0 : gratuit.' }
+    ] },
+    exercices: { title: 'Nouvel exercice', done: 'Exercice publié', min: 'admin', fields: [
+      { k: 'titre', l: 'Titre', req: true, ph: 'Par exemple : Automatise ton premier email' },
+      { k: 'niveau', l: 'Niveau', type: 'select', opts: ['Débutant', 'Intermédiaire', 'Avancé'] },
+      { k: 'temps', l: 'Temps estimé', help: 'Par exemple : 45 min' },
+      { k: 'consigne', l: 'La consigne', type: 'textarea', req: true, rows: 6 },
+      { k: 'livrable', l: 'Ce que l\'élève rend', type: 'textarea', req: true, help: 'Par exemple : le lien de ton site et une capture de la page.' },
+      { k: 'lie', l: 'Cours ou vidéo lié', help: 'Facultatif. Le titre du cours que l\'exercice met en pratique.' },
+      { k: 'credits', l: 'Crédits pour débloquer', type: 'number', help: 'Vide : le coût par défaut du format (réglable dans Réglages). 0 : gratuit.' }
     ] },
     articles: { title: 'Nouvel article', done: 'Article publié', min: 'admin', fields: [
       { k: 'titre', l: 'Titre', req: true },
       { k: 'theme', l: 'Thème', type: 'select', opts: ['Méthode', 'Outils', "Retours d'expérience"] },
       { k: 'resume', l: 'Résumé', type: 'textarea', req: true, help: 'Deux phrases, affichées dans la liste.' },
-      { k: 'contenu', l: 'Contenu', type: 'textarea', rows: 10 }
+      { k: 'contenu', l: 'Contenu', type: 'textarea', rows: 10 },
+      { k: 'credits', l: 'Crédits pour débloquer', type: 'number', help: 'Vide : le coût par défaut du format (réglable dans Réglages). 0 : gratuit.' }
     ] },
     nouveautes: { title: 'Nouvelle annonce', done: 'Nouveauté publiée', min: 'admin', fields: [
       { k: 'titre', l: 'Titre', req: true },
@@ -211,7 +265,7 @@
   let forumSort = 'populaires';
   let lbRange = 'toujours';
   let calOffset = 0;
-  let filters = { formations: 'Tous', articles: 'Tous', q: '' };
+  let filters = { niveau: 'Tous', parcours: 'Tous', articles: 'Tous', q: '' };
 
   function parse() {
     const h = (location.hash || '#/').replace(/^#\/?/, '');
@@ -221,9 +275,18 @@
   const go = path => { if (location.hash === '#/' + path) render(); else location.hash = '#/' + path; };
 
   const ROUTES = {
-    '': { v: viewHome, t: 'OTTOTECH : apprends à construire avec l\'IA' },
-    formations: { v: viewFormations, t: 'Formations vidéo', skel: true },
-    formation: { v: viewFormation, t: 'Formation' },
+    '': { v: viewHome, t: 'Formez-vous à l\'IA (FVIA)' },
+    apprendre: { v: viewApprendre, t: 'Apprendre' },
+    cours: { v: () => viewLearnList('cours'), t: 'Cours', skel: true },
+    cour: { v: p => viewTrack('cours', p), t: 'Cours' },
+    videos: { v: () => viewLearnList('videos'), t: 'Vidéos', skel: true },
+    video: { v: p => viewTrack('videos', p), t: 'Vidéo' },
+    formations: { v: () => viewLearnList('videos'), t: 'Vidéos' },
+    formation: { v: p => viewTrack('videos', p), t: 'Vidéo' },
+    ateliers: { v: viewAteliers, t: 'Ateliers', flag: 'ateliers', skel: true },
+    atelier: { v: viewAtelier, t: 'Atelier', flag: 'ateliers' },
+    exercices: { v: () => viewLearnList('exercices'), t: 'Exercices', flag: 'exercices', skel: true },
+    exercice: { v: viewExercice, t: 'Exercice', flag: 'exercices' },
     articles: { v: viewArticles, t: 'Articles', skel: true },
     article: { v: viewArticle, t: 'Article' },
     nouveautes: { v: viewNouveautes, t: 'Nouveautés' },
@@ -234,10 +297,12 @@
     classement: { v: viewClassement, t: 'Classement', flag: 'classement' },
     membres: { v: viewMembres, t: 'Membres', flag: 'membres' },
     accompagnement: { v: viewAccompagnement, t: 'Accompagnement', flag: 'accompagnement' },
+    tarifs: { v: viewTarifs, t: 'Packs de crédits' },
     espace: { v: viewEspace, t: 'Mon espace', min: 'member' },
     admin: { v: viewAdmin, t: 'Console admin', min: 'admin' },
     godmode: { v: viewGod, t: 'God mode', min: 'god', real: true },
-    legal: { v: viewLegal, t: 'Informations légales' }
+    legal: { v: viewLegal, t: 'Informations légales' },
+    retractation: { v: viewRetractation, t: 'Se rétracter du contrat' }
   };
 
   function render() {
@@ -262,7 +327,7 @@
     const flagNote = route.flag && !S.flags[route.flag] && realRole() === 'god'
       ? `<div class="container" style="padding-top:16px"><div class="badge badge-god">${ic('eye-off')}Fonction coupée pour le public, visible car tu es en god mode</div></div>` : '';
     main.innerHTML = `<div id="top-sentinel" aria-hidden="true"></div>${flagNote}<div class="view">${html}</div>`;
-    document.title = route.t === ROUTES[''].t ? route.t : `${route.t} | OTTOTECH`;
+    document.title = route.t === ROUTES[''].t ? route.t : `${route.t} | FVIA`;
     renderChrome(p.name);
     icons();
     observe();
@@ -296,6 +361,7 @@
     const r = realRole();
     const user = S.user;
     const commActive = COMM.some(c => c.r === cur) || cur === 'post';
+    const learnActive = LEARN_ROUTES.includes(cur);
 
     // Ruban god mode : voir le site en tant que...
     $('#god-ribbon').innerHTML = r === 'god' ? `
@@ -316,16 +382,16 @@
     const link = (r2, t, cls = '') => `<a class="nav-link ${cls}" href="#/${r2}" ${cur === r2 ? 'aria-current="page"' : ''}>${t}</a>`;
     $('#nav').innerHTML = `
       <div class="container nav-inner">
-        <a class="brand" href="#/" aria-label="OTTOTECH, accueil"><span class="brand-mark" aria-hidden="true"><span>O</span></span>OTTOTECH</a>
+        <a class="brand" href="#/" aria-label="Formez-vous à l'IA, accueil"><span class="brand-mark" aria-hidden="true"><span>F</span></span>FVIA</a>
         <div class="nav-links">
-          ${link('formations', 'Formations')}
-          ${link('articles', 'Articles')}
-          <button type="button" class="nav-link" data-action="mega" aria-expanded="false" aria-controls="mega" ${commActive ? 'aria-current="page"' : ''}>Communauté ${ic('chevron-down')}</button>
+          <button type="button" class="nav-link" data-action="mega" data-m="learn" aria-expanded="false" aria-controls="mega" ${learnActive ? 'aria-current="page"' : ''}>Apprendre ${ic('chevron-down')}</button>
+          <button type="button" class="nav-link" data-action="mega" data-m="comm" aria-expanded="false" aria-controls="mega" ${commActive ? 'aria-current="page"' : ''}>Communauté ${ic('chevron-down')}</button>
           ${link('nouveautes', 'Nouveautés', 'opt')}
           ${S.flags.accompagnement || r === 'god' ? link('accompagnement', 'Accompagnement') : ''}
         </div>
         <div class="nav-right">
           <button type="button" class="search-trigger" data-action="cmd" aria-label="Rechercher (Ctrl K)">${ic('search')}<span class="label">Rechercher</span><span class="kbd">${/Mac/.test(navigator.platform) ? '⌘' : 'Ctrl'} K</span></button>
+          ${user && role() === 'member' ? `<a class="credit-chip" href="#/tarifs" aria-label="${wallet().solde} crédits, voir les packs">${ic('coins')}<span>${wallet().solde}</span></a>` : ''}
           ${user ? `
             <button type="button" class="user-btn" data-action="usermenu" aria-haspopup="menu" aria-expanded="false" aria-controls="user-menu" aria-label="Menu du compte de ${esc(user.name)}">
               <span class="avatar ${r === 'god' ? 'gold' : ''}">${esc(initials(user.name))}</span>${ic('chevron-down')}
@@ -335,15 +401,7 @@
         </div>
       </div>`;
 
-    $('#mega').innerHTML = `
-      <div class="container mega-inner">
-        <div class="mega-intro">
-          <h3>La communauté</h3>
-          <p class="muted small measure">Un seul endroit pour poser tes questions, montrer ce que tu construis et suivre les autres.</p>
-        </div>
-        ${[COMM.slice(0, 3), COMM.slice(3)].map(col => `<div class="mega-col">${col.filter(c => S.flags[c.flag] || r === 'god').map((c, i) => `
-          <a class="mega-item" href="#/${c.r}" style="--i:${i}"><span class="mi-icon">${ic(c.icon)}</span><span><strong>${c.t}</strong><span>${c.d}</span></span></a>`).join('')}</div>`).join('')}
-      </div>`;
+    paintMega();
 
     $('#user-menu').innerHTML = user ? `
       <div class="popover-head"><span class="avatar lg ${r === 'god' ? 'gold' : ''}">${esc(initials(user.name))}</span>
@@ -365,24 +423,24 @@
       <div class="container">
         <div class="footer-grid">
           <div>
-            <a class="brand" href="#/" aria-label="OTTOTECH, accueil"><span class="brand-mark" aria-hidden="true"><span>O</span></span>OTTOTECH</a>
-            <p style="margin-top:8px;max-width:32ch">Apprendre à construire avec l'IA, quand on n'est pas développeur.</p>
+            <a class="brand" href="#/" aria-label="Formez-vous à l'IA, accueil"><span class="brand-mark" aria-hidden="true"><span>F</span></span>FVIA</a>
+            <p style="margin-top:8px;max-width:32ch">Formez-vous à l'IA. Apprendre à construire avec l'IA, quand on n'est pas développeur.</p>
           </div>
-          <div><h4>Apprendre</h4><ul>${fl('formations', 'Formations vidéo')}${fl('articles', 'Articles')}${fl('nouveautes', 'Nouveautés')}</ul></div>
+          <div><h4>Apprendre</h4><ul>${fl('apprendre', "Vue d'ensemble")}${LEARN.filter(learnOn).map(l => fl(l.r, l.t)).join('')}${fl('nouveautes', 'Nouveautés')}</ul></div>
           <div><h4>Communauté</h4><ul>${COMM.filter(c => S.flags[c.flag]).map(c => fl(c.r, c.t)).join('')}</ul></div>
-          <div><h4>Accompagnement</h4><ul>${S.flags.accompagnement ? fl('accompagnement', 'Les formules') : ''}<li><a href="https://www.ottom4t3.com" target="_blank" rel="noopener">OTTOM4T3, fait pour toi</a></li></ul></div>
+          <div><h4>Accompagnement</h4><ul>${fl('tarifs', 'Les packs de crédits')}${S.flags.accompagnement ? fl('accompagnement', 'Les formules') : ''}<li><a href="https://www.ottom4t3.com" target="_blank" rel="noopener">OTTOM4T3, fait pour toi</a></li></ul></div>
           <div><h4>Compte</h4><ul>${user ? fl('espace', 'Mon espace') : '<li><button type="button" data-action="login">Se connecter</button></li>'}<li><button type="button" data-action="team">Accès équipe</button></li></ul></div>
         </div>
         <div class="footer-bottom">
-          <span>© 2026 OTTOTECH</span>
-          <span style="display:flex;gap:20px;flex-wrap:wrap"><a href="#/legal/mentions">Mentions légales</a><a href="#/legal/confidentialite">Confidentialité</a><a href="#/legal/cgv">Conditions de vente</a></span>
+          <span>© 2026 Formez-vous à l'IA</span>
+          <span style="display:flex;gap:20px;flex-wrap:wrap"><a href="#/legal/mentions">Mentions légales</a><a href="#/legal/confidentialite">Confidentialité</a><a href="#/legal/cgv">Conditions de vente</a><a href="#/retractation" style="color:var(--fg);font-weight:600">Se rétracter du contrat ici</a></span>
         </div>
       </div>`;
 
     const tb = (r2, i, t, match) => `<a href="#/${r2}" ${match ? 'aria-current="page"' : ''}>${ic(i)}<span>${t}</span></a>`;
     $('#tabbar').innerHTML = `
       ${tb('', 'house', 'Accueil', cur === '')}
-      ${tb('formations', 'play', 'Formations', cur === 'formations' || cur === 'formation')}
+      ${tb('apprendre', 'graduation-cap', 'Apprendre', learnActive)}
       ${tb('communaute', 'messages-square', 'Communauté', commActive)}
       ${user ? tb('espace', 'user-round', 'Mon espace', cur === 'espace' || cur === 'admin' || cur === 'godmode') : `<button type="button" data-action="login">${ic('log-in')}<span>Connexion</span></button>`}
       <button type="button" data-action="menu-sheet">${ic('menu')}<span>Plus</span></button>`;
@@ -450,7 +508,7 @@
           <p class="lead">Apprends à construire tes propres outils avec l'IA, pas à pas, avec quelqu'un qui te répond.</p>
           <div class="hero-ctas">
             <button type="button" class="btn btn-primary btn-lg" data-action="start">Commencer ${ic('arrow-right')}</button>
-            <a class="btn btn-secondary btn-lg" href="#/formations">Voir les formations</a>
+            <a class="btn btn-secondary btn-lg" href="#/apprendre">Voir comment on apprend</a>
           </div>
         </div>
         <div id="quiz" class="quiz" aria-live="polite">${quizHTML()}</div>
@@ -460,49 +518,47 @@
     <section class="band alt" aria-labelledby="h-espaces">
       <div class="container">
         <div class="section-head reveal">
-          <h2 id="h-espaces" class="display-l">Tout pour apprendre, au même endroit.</h2>
-          <p class="lead">Des vidéos pour comprendre, des articles pour approfondir, une communauté pour ne pas rester bloqué.</p>
+          <h2 id="h-espaces" class="display-l">Cinq façons d'apprendre, une seule communauté.</h2>
+          <p class="lead">Des cours pour comprendre, des vidéos pour voir faire, des ateliers pour construire ensemble, des exercices corrigés pour progresser.</p>
         </div>
         <div class="bento">
-          <a class="tile tile-formations reveal" href="#/formations" style="--d:0">
+          <a class="tile tile-formations reveal" href="#/videos" style="--d:0">
             <span class="t-icon">${ic('play')}</span>
-            <h3>Formations vidéo</h3>
+            <h3>Cours vidéo</h3>
             <p>Des leçons courtes, dans l'ordre. Ta progression est enregistrée, tu reprends où tu t'es arrêté.</p>
-            <span class="t-go">Explorer les formations ${ic('arrow-right')}</span>
+            <span class="t-go">Voir les vidéos ${ic('arrow-right')}</span>
             <span class="play-orb" aria-hidden="true"><span class="po-btn"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></svg></span></span>
           </a>
-          ${S.flags.forum ? `
-          <a class="tile tile-communaute reveal" href="#/communaute" style="--d:1">
-            <span class="t-icon">${ic('messages-square')}</span>
-            <h3>Communauté</h3>
-            <p>Pose ta question, montre où tu en es, aide quelqu'un qui débute. Les meilleures réponses remontent.</p>
-            <span class="t-go">Entrer dans le forum ${ic('arrow-right')}</span>
+          <a class="tile reveal" href="#/cours" style="--d:1">
+            <span class="t-icon">${ic('book-open-text')}</span>
+            <h3>Cours</h3>
+            <p>Comprendre à ton rythme, en quelques minutes de lecture.</p>
+          </a>
+          ${S.flags.ateliers ? `<a class="tile reveal" href="#/ateliers" style="--d:2">
+            <span class="t-icon" style="color:var(--gold);background:var(--gold-tint)">${ic('presentation')}</span>
+            <h3>Ateliers</h3>
+            <p>En direct, chacun construit son projet. Le replay reste.</p>
           </a>` : ''}
-          <a class="tile reveal" href="#/articles" style="--d:2">
+          ${S.flags.exercices ? `<a class="tile tile-projets reveal" href="#/exercices" style="--d:3">
+            <span class="t-icon">${ic('list-checks')}</span>
+            <h3>Exercices</h3>
+            <p>Tu rends ton travail, tu reçois une correction.</p>
+          </a>` : ''}
+          <a class="tile reveal" href="#/articles" style="--d:4">
             <span class="t-icon">${ic('newspaper')}</span>
             <h3 class="serif" style="font-size:26px">Articles</h3>
             <p>Des réponses claires aux questions que tu te poses.</p>
           </a>
-          <a class="tile reveal" href="#/nouveautes" style="--d:3">
-            <span class="t-icon" style="color:var(--gold);background:var(--gold-tint)">${ic('sparkles')}</span>
-            <h3>Nouveautés</h3>
-            <p>Ce qui vient de sortir, en un coup d'œil.</p>
-          </a>
-          ${S.flags.projets ? `<a class="tile tile-projets reveal" href="#/projets" style="--d:4">
-            <span class="t-icon">${ic('folder-kanban')}</span>
-            <h3>Projets</h3>
-            <p>Ce que les membres construisent, pour de vrai.</p>
+          ${S.flags.forum ? `<a class="tile tile-skool span-2 reveal" href="#/communaute" style="--d:5">
+            <span class="t-icon">${ic('messages-square')}</span>
+            <h3>Communauté</h3>
+            <p>Pose ta question, montre où tu en es. Chaque contribution te fait monter de niveau.</p>
+            <span class="levels" aria-hidden="true">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<span>${n}</span>`).join('')}</span>
           </a>` : ''}
-          ${S.flags.accompagnement ? `<a class="tile tile-accomp reveal" href="#/accompagnement" style="--d:5">
+          ${S.flags.accompagnement ? `<a class="tile tile-accomp span-2 reveal" href="#/accompagnement" style="--d:6">
             <span class="t-icon">${ic('heart-handshake')}</span>
             <h3>Accompagnement</h3>
-            <p>Quelqu'un regarde ton travail et te répond.</p>
-          </a>` : ''}
-          ${S.flags.classement || S.flags.evenements ? `<a class="tile tile-skool reveal" href="#/${S.flags.classement ? 'classement' : 'evenements'}" style="--d:6">
-            <span class="t-icon">${ic('trophy')}</span>
-            <h3>Événements et niveaux</h3>
-            <p>Des lives pour avancer ensemble, et des niveaux qui montrent le chemin parcouru.</p>
-            <span class="levels" aria-hidden="true">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<span>${n}</span>`).join('')}</span>
+            <p>Quelqu'un regarde ton travail et te répond. Et si tu n'as pas le temps, l'agence le fait pour toi.</p>
           </a>` : ''}
         </div>
       </div>
@@ -568,7 +624,7 @@
           ${[
             ['Faut-il savoir coder ?', "Non. C'est même le point de départ : tout est pensé pour quelqu'un qui n'a jamais écrit une ligne de code."],
             ['Et si je bloque ?', "Tu poses ta question dans la communauté, ou en accompagnement si tu l'as choisi. Tu n'es pas seul face à l'écran."],
-            ["Qui est derrière OTTOTECH ?", "Kemy. Ancien infirmier, il a créé son agence d'automatisation et son logiciel sans être développeur. Il t'apprend à faire pareil."],
+            ["Qui est derrière FVIA ?", "Kemy. Ancien infirmier, il a créé son agence d'automatisation et son logiciel sans être développeur. Il t'apprend à faire pareil."],
             ['Je peux commencer gratuitement ?', "Oui : les articles et une partie de la communauté sont ouverts. Crée ton compte pour garder ton parcours."]
           ].map(([q, a], i) => `<div class="acc-item"><button type="button" class="acc-btn" data-action="acc" aria-expanded="false" aria-controls="acc-${i}" id="accb-${i}">${q}<span class="plus">${ic('plus')}</span></button><div class="acc-panel" id="acc-${i}" role="region" aria-labelledby="accb-${i}"><div><p>${a}</p></div></div></div>`).join('')}
         </div>
@@ -614,7 +670,7 @@
       </div>
       <div class="result-actions">
         ${S.user
-          ? `<a class="btn btn-primary btn-block" href="#/formations">Voir mes formations ${ic('arrow-right')}</a>`
+          ? `<a class="btn btn-primary btn-block" href="#/apprendre">Voir par où commencer ${ic('arrow-right')}</a>`
           : `<button type="button" class="btn btn-primary btn-block" data-action="signup">Garder mon parcours ${ic('arrow-right')}</button>`}
         <button type="button" class="btn btn-quiet btn-block" data-action="quiz-reset">${ic('rotate-ccw')}Refaire le test</button>
       </div>
@@ -629,77 +685,327 @@
   }
 
   // =========================================================
-  // FORMATIONS
+  // CREDITS : portefeuille, cout d'un contenu, deblocage
   // =========================================================
-  function viewFormations() {
-    const all = S.data.formations;
+  const KIND_OBJ = { cours: 'ce cours', videos: 'cette vidéo', ateliers: 'cet atelier', exercices: 'cet exercice', articles: 'cet article' };
+  function wallet(email) {
+    const e = email || (S.user && S.user.email);
+    if (!e) return null;
+    if (!S.wallets[e]) S.wallets[e] = { solde: 0, debloques: [], journal: [] };
+    return S.wallets[e];
+  }
+  function coutOf(kind, item) {
+    const v = item && item.credits !== undefined && item.credits !== '' ? parseInt(item.credits, 10) : NaN;
+    return Number.isFinite(v) && v >= 0 ? v : (S.settings.cout[kind] ?? 0);
+  }
+  function accessOf(kind, item) {
+    const cout = coutOf(kind, item);
+    if (cout === 0) return { ok: true, cout, free: true };
+    if (atLeast('admin')) return { ok: true, cout, staff: true };
+    if (!S.user) return { ok: false, cout, guest: true };
+    const w = wallet();
+    if (w.debloques.includes(item.id)) return { ok: true, cout, owned: true };
+    return { ok: false, cout, solde: w.solde };
+  }
+  const creditBadge = (kind, item) => {
+    const a = accessOf(kind, item);
+    if (a.free || a.staff) return '';
+    if (a.owned) return `<span class="badge badge-success">${ic('lock-open')}Débloqué</span>`;
+    return `<span class="badge badge-member">${ic('lock')}${plural(a.cout, 'crédit', 'crédits')}</span>`;
+  };
+  function lockPanel(kind, item, a, label) {
+    if (a.guest) return `<div class="lock reveal"><span class="lock-icon">${ic('lock')}</span><div class="lock-text"><strong>Réservé aux membres</strong><p class="small muted">Crée ton compte, choisis un pack de crédits et débloque ce que tu veux, quand tu veux.</p></div><div class="lock-actions"><button type="button" class="btn btn-primary" data-action="signup">Créer mon compte</button><a class="btn btn-quiet" href="#/tarifs">Voir les packs</a></div></div>`;
+    const manque = a.cout - a.solde;
+    return `<div class="lock reveal"><span class="lock-icon">${ic('lock')}</span><div class="lock-text"><strong>${label || 'Débloque ' + KIND_OBJ[kind]} pour ${plural(a.cout, 'crédit', 'crédits')}</strong><p class="small muted">Tu as ${plural(a.solde, 'crédit', 'crédits')}. ${manque > 0 ? `Il t'en manque ${manque}.` : 'Une fois débloqué, il reste dans ton espace.'}</p></div><div class="lock-actions">${manque > 0 ? `<a class="btn btn-primary" href="#/tarifs">${ic('coins')}Recharger mes crédits</a>` : `<button type="button" class="btn btn-primary" data-action="unlock" data-kind="${kind}" data-id="${item.id}" data-cout="${a.cout}">${ic('lock-open')}Débloquer</button>`}</div>${manque > 0 ? '' : `<p class="tiny muted lock-legal">En débloquant, tu demandes l'accès immédiat à ${KIND_OBJ[kind]} et tu reconnais perdre ton droit de rétractation pour ce contenu (article L221-28 du Code de la consommation). Tes crédits non utilisés restent remboursables 14 jours.</p>`}</div>`;
+  }
+  const lockAside = a => `<h2 class="title-m">${plural(a.cout, 'crédit', 'crédits')}</h2><p class="small muted" style="margin:8px 0 20px">Débloqué une fois, ce contenu reste ensuite accessible dans ton espace.</p><a class="btn btn-quiet btn-block" href="#/tarifs">Comment marchent les crédits</a>`;
+
+  function viewTarifs() {
+    const w = role() === 'member' ? wallet() : null;
+    const c = S.settings.cout;
+    const equiv = n => {
+      const parts = [];
+      if (c.videos) parts.push(`${Math.floor(n / c.videos)} cours ou vidéos`);
+      if (c.ateliers) parts.push(`${Math.floor(n / c.ateliers)} ateliers`);
+      return parts.length ? "Jusqu'à " + parts.join(', ou ') : 'Tout le contenu';
+    };
+    const btn = p => {
+      if (atLeast('admin')) return `<a class="btn btn-quiet btn-block" href="#/admin/reglages">Régler ce pack</a>`;
+      if (S.user && DEMO) return `<button type="button" class="btn btn-block ${p.reco ? 'btn-primary' : 'btn-secondary'}" data-action="buy" data-id="${p.id}">Ajouter ${p.credits} crédits (démo)</button>`;
+      return `<button type="button" class="btn btn-block ${p.reco ? 'btn-primary' : 'btn-secondary'}" data-action="waitlist">Être prévenu à l'ouverture</button>`;
+    };
+    return `${pageHead('Les packs de crédits', "Tu paies une fois, puis tu débloques ce que tu veux, quand tu veux. Pas d'abonnement.", w ? `<a class="wallet-big" href="#/espace">${ic('coins')}<span><strong>${w.solde}</strong> ${w.solde > 1 ? 'crédits disponibles' : 'crédit disponible'}</span></a>` : '')}
+      <section class="container" style="padding-bottom:96px">
+        <div class="offers">${S.settings.packs.map(p => `
+          <div class="offer ${p.reco ? 'featured' : ''} reveal">
+            ${p.reco ? `<span class="badge badge-god flag">${ic('star')}Recommandé</span>` : ''}
+            <h3>${esc(p.nom)}</h3>
+            <p class="credits-big"><strong>${p.credits}</strong> crédits</p>
+            <p class="price">${p.prix ? esc(p.prix) + ' €' : "Prix annoncé à l'ouverture"}</p>
+            <ul>
+              <li>${ic('check')}<span>${equiv(p.credits)}</span></li>
+              <li>${ic('check')}<span>Les exercices que tu débloques sont corrigés</span></li>
+              <li>${ic('check')}<span>Les articles et la communauté, sans crédit</span></li>
+            </ul>
+            ${btn(p)}
+          </div>`).join('')}</div>
+        <section class="panel reveal" style="margin-top:56px">
+          <h2 class="title-l" style="margin-bottom:24px">Ce que coûte chaque format</h2>
+          <div class="cost-grid">${LEARN.filter(learnOn).map(l => `<a class="cost" href="#/${l.r}"><span class="combo-icon">${ic(l.icon)}</span><strong>${l.t}</strong><span class="small muted">${c[l.r] ? plural(c[l.r], 'crédit', 'crédits') : 'Gratuit'}</span></a>`).join('')}</div>
+          <p class="small muted" style="margin-top:20px">Un contenu débloqué reste accessible dans ton espace. Les ateliers se réservent avec des crédits, le replay est inclus.</p>
+        </section>
+      </section>`;
+  }
+
+  // =========================================================
+  // APPRENDRE : cours, videos, ateliers, exercices, articles
+  // =========================================================
+  const PARCOURS_OPTS = ["Je me lance dans l'IA", "J'automatise ma boîte", 'Tronc commun'];
+  const NIVEAUX = ['Débutant', 'Intermédiaire', 'Avancé'];
+  const KIND = {
+    cours: { label: 'Cours', detail: 'cour', icon: 'book-open-text', lead: 'Pour comprendre, à ton rythme. Chaque cours se lit en quelques minutes.', empty: 'Les premiers cours arrivent.', create: 'Nouveau cours', track: true, fem: false },
+    videos: { label: 'Vidéos', detail: 'video', icon: 'play', lead: "Pour voir faire, étape par étape. Ta progression est enregistrée.", empty: 'Les premières vidéos arrivent.', create: 'Nouvelle vidéo', track: true, fem: true },
+    exercices: { label: 'Exercices', detail: 'exercice', icon: 'list-checks', lead: "Un nouvel exercice chaque jour. Tu rends ton travail, tu reçois une correction écrite.", empty: 'Les premiers exercices arrivent.', create: 'Nouvel exercice', track: false, fem: false }
+  };
+  const LEARN = [
+    { r: 'cours', t: 'Cours', icon: 'book-open-text', d: 'Comprendre, à ton rythme' },
+    { r: 'videos', t: 'Vidéos', icon: 'play', d: 'Voir faire, étape par étape' },
+    { r: 'ateliers', t: 'Ateliers', icon: 'presentation', d: 'Construire ensemble, en direct', flag: 'ateliers' },
+    { r: 'exercices', t: 'Exercices', icon: 'list-checks', d: 'Pratiquer et être corrigé', flag: 'exercices' },
+    { r: 'articles', t: 'Articles', icon: 'newspaper', d: 'Approfondir un sujet précis' }
+  ];
+  const LEARN_ROUTES = ['apprendre', 'cours', 'cour', 'videos', 'video', 'formations', 'formation', 'ateliers', 'atelier', 'exercices', 'exercice', 'articles', 'article'];
+  const learnOn = l => !l.flag || S.flags[l.flag] || realRole() === 'god';
+  const learnNav = cur => `
+    <div class="subnav"><div class="container subnav-inner">
+      <span class="subnav-title">Apprendre</span>
+      <a href="#/apprendre" ${cur === 'apprendre' ? 'aria-current="page"' : ''}>${ic('layers')}Vue d'ensemble</a>
+      ${LEARN.filter(learnOn).map(l => `<a href="#/${l.r}" ${cur === l.r ? 'aria-current="page"' : ''}>${ic(l.icon)}${l.t}</a>`).join('')}
+    </div></div>`;
+  const PLAY_SVG = '<svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>';
+  const atTime = a => new Date(a.date + 'T' + (a.heure || '23:59')).getTime();
+  const dateFr = a => new Date(a.date + 'T12:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) + (a.heure ? ' à ' + a.heure : '');
+
+  const rendusOf = (exId, email) => S.data.rendus.filter(r => r.exId === exId && (!email || r.email === email)).sort((a, b) => b.date - a.date);
+  function exStatus(exId) {
+    if (!S.user) return null;
+    const r = rendusOf(exId, S.user.email)[0];
+    if (!r) return { k: 'todo', t: 'À faire', cls: 'badge-member' };
+    if (r.statut === 'corrige') return { k: 'done', t: 'Corrigé', cls: 'badge-success', r };
+    return { k: 'wait', t: 'En attente de correction', cls: 'badge-gold', r };
+  }
+
+  // ---------- Vue d'ensemble ----------
+  function viewApprendre() {
+    const word = { cours: ['cours', 'cours'], videos: ['vidéo', 'vidéos'], ateliers: ['atelier', 'ateliers'], exercices: ['exercice', 'exercices'], articles: ['article', 'articles'] };
+    const info = {
+      videos: { cls: 'tile-formations wide', d: "Des leçons courtes, dans l'ordre, pour voir chaque étape à l'écran. Tu reprends exactement où tu t'es arrêté." },
+      cours: { cls: '', d: 'La même matière, par écrit. Pour comprendre en profondeur et revenir sur un point précis.' },
+      ateliers: { cls: 'tile-accomp', d: 'En direct, en petit groupe : chacun avance sur son propre projet. Le replay reste disponible.' },
+      exercices: { cls: 'tile-projets', d: 'Un cas concret à faire seul. Tu rends ton travail, tu reçois une correction écrite.' },
+      articles: { cls: '', d: 'Une question, une réponse claire. Lisibles par tous, même sans compte.' }
+    };
+    const tiles = ['videos', 'cours', 'ateliers', 'exercices', 'articles'].map(r => LEARN.find(l => l.r === r)).filter(learnOn).map((l, i) => {
+      const c = (S.data[l.r] || []).length;
+      return `<a class="tile ${info[l.r].cls} reveal" href="#/${l.r}" style="--d:${i}">
+        <span class="t-icon">${ic(l.icon)}</span>
+        <h3${l.r === 'articles' ? ' class="serif"' : ''}>${l.t}</h3>
+        <p>${info[l.r].d}</p>
+        <span class="t-go">${c ? plural(c, word[l.r][0], word[l.r][1]) : 'Bientôt disponible'} ${ic('arrow-right')}</span>
+        ${l.r === 'videos' ? `<span class="play-orb" aria-hidden="true"><span class="po-btn"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></svg></span></span>` : ''}
+      </a>`;
+    }).join('');
+    return `${learnNav('apprendre')}${pageHead('Apprendre', 'Cinq formats qui se complètent. Commence par celui qui te ressemble, les autres suivront.')}
+      <div class="container" style="padding-bottom:96px">
+        <div class="learn-grid">${tiles}</div>
+        <section class="panel reveal" style="margin-top:48px">
+          <h2 class="title-l" style="margin-bottom:24px">Comment ils s'emboîtent</h2>
+          <div class="combo">
+            ${[['play', 'Tu regardes', 'La vidéo te montre comment faire.'], ['book-open-text', 'Tu comprends', 'Le cours explique le pourquoi, à ton rythme.'], ['list-checks', 'Tu pratiques', "L'exercice te fait construire, la correction te fait progresser."]].map(([i, t, d]) => `<div><span class="combo-icon">${ic(i)}</span><h3 class="title-m">${t}</h3><p class="small muted" style="margin-top:4px">${d}</p></div>`).join('')}
+          </div>
+          <p class="small muted" style="margin-top:24px">Les ateliers te font avancer avec les autres. Les articles répondent aux questions précises.</p>
+        </section>
+      </div>`;
+  }
+
+  // ---------- Listes : cours, videos, exercices ----------
+  function viewLearnList(kind) {
+    const K = KIND[kind];
+    const all = S.data[kind];
     const q = filters.q.toLowerCase();
-    const list = all.filter(f => (filters.formations === 'Tous' || f.niveau === filters.formations) && (!q || (f.titre + f.description).toLowerCase().includes(q)));
-    const inProgress = S.user ? all.filter(f => (S.progress[f.id] || 0) > 0 && S.progress[f.id] < 100) : [];
-    const right = atLeast('admin') ? createBtn('formations', 'Nouvelle formation') : '';
+    const list = all.filter(f => (filters.niveau === 'Tous' || f.niveau === filters.niveau)
+      && (kind === 'exercices' || filters.parcours === 'Tous' || f.parcours === filters.parcours)
+      && (!q || ((f.titre || '') + ' ' + (f.description || f.consigne || '')).toLowerCase().includes(q)));
+    const inProgress = K.track && S.user ? all.filter(f => (S.progress[f.id] || 0) > 0 && S.progress[f.id] < 100) : [];
+    const right = atLeast('admin') ? createBtn(kind, K.create) : '';
     let body;
     if (!all.length) {
       body = emptyState({
-        icon: 'play', title: 'Les premières formations arrivent.',
-        text: atLeast('admin') ? 'Publie la première : elle apparaîtra ici, avec la progression de chaque membre.' : S.user ? 'Active la notification, tu seras le premier au courant.' : 'Crée ton compte pour être prévenu dès la mise en ligne, et garder ta progression.',
-        actions: atLeast('admin') ? createBtn('formations', 'Créer la première formation') : `${watchBtn('formations')}<a class="btn btn-quiet" href="#/articles">Lire les articles</a>`
+        icon: K.icon, title: K.empty,
+        text: atLeast('admin') ? 'Publie le premier : il apparaîtra ici pour tous les membres.' : S.user ? 'Active la notification, tu seras prévenu dès la mise en ligne.' : 'Crée ton compte pour être prévenu dès la mise en ligne et garder ta progression.',
+        actions: atLeast('admin') ? createBtn(kind, K.create) : `${watchBtn('contenus')}<a class="btn btn-quiet" href="#/apprendre">Voir les autres formats</a>`
       });
     } else if (!list.length) {
-      body = emptyState({ icon: 'search', title: 'Aucune formation ne correspond.', text: 'Essaie un autre niveau ou un autre mot.', actions: `<button type="button" class="btn btn-quiet" data-action="reset-filters">Tout afficher</button>` });
+      body = emptyState({ icon: 'search', title: 'Rien ne correspond.', text: 'Essaie un autre niveau, un autre parcours ou un autre mot.', actions: `<button type="button" class="btn btn-quiet" data-action="reset-filters">Tout afficher</button>` });
     } else {
-      body = `<div class="grid-3">${list.map((f, i) => formationCard(f, i)).join('')}</div>`;
+      const jour = kind === 'exercices' && filters.niveau === 'Tous' && !q ? list[0] : null;
+      body = `${jour ? `<a class="today reveal" href="#/exercice/${jour.id}"><span class="today-tag">${ic('sunrise')}L'exercice du jour</span><h2 class="display-m">${esc(jour.titre)}</h2><p class="lead">${esc((jour.consigne || '').slice(0, 160))}</p><span class="t-go">S'y mettre ${ic('arrow-right')}</span></a>` : ''}
+        <div class="grid-3">${(jour ? list.slice(1) : list).map((f, i) => learnCard(kind, f, i)).join('')}</div>`;
     }
-    return `${pageHead('Formations vidéo', "Des leçons courtes, dans l'ordre. Ta progression est enregistrée.", right)}
+    const chips = (key, opts, allLabel, label) => `<div class="chips" role="group" aria-label="${label}">${['Tous', ...opts].map(n => `<button type="button" class="chip" data-action="filter" data-f="${key}" data-v="${esc(n)}" aria-pressed="${filters[key] === n}">${n === 'Tous' ? allLabel : esc(n)}</button>`).join('')}</div>`;
+    return `${learnNav(kind)}${pageHead(K.label, K.lead, right)}
       <div class="container" style="padding-bottom:96px">
-        ${inProgress.length ? `<section class="panel reveal" style="margin-bottom:32px"><div class="panel-head"><h2>Reprendre là où tu t'es arrêté</h2></div><div class="grid-3">${inProgress.map(formationCard).join('')}</div></section>` : ''}
+        ${inProgress.length ? `<section class="panel reveal" style="margin-bottom:32px"><div class="panel-head"><h2>Reprendre là où tu t'es arrêté</h2></div><div class="grid-3">${inProgress.map((f, i) => learnCard(kind, f, i)).join('')}</div></section>` : ''}
         ${all.length ? `<div class="toolbar">
-          <label class="search-field"><span class="sr-only">Rechercher une formation</span>${ic('search')}<input type="search" data-bind="q" value="${esc(filters.q)}" placeholder="Rechercher une formation"></label>
-          <div class="chips" role="group" aria-label="Filtrer par niveau">${['Tous', 'Débutant', 'Intermédiaire', 'Avancé'].map(n => `<button type="button" class="chip" data-action="filter" data-f="formations" data-v="${n}" aria-pressed="${filters.formations === n}">${n === 'Tous' ? 'Tous niveaux' : n}</button>`).join('')}</div>
+          <label class="search-field"><span class="sr-only">Rechercher</span>${ic('search')}<input type="search" data-bind="q" value="${esc(filters.q)}" placeholder="Rechercher"></label>
+          ${chips('niveau', NIVEAUX, 'Tous niveaux', 'Filtrer par niveau')}
+          ${kind !== 'exercices' ? chips('parcours', PARCOURS_OPTS, 'Tous parcours', 'Filtrer par parcours') : ''}
         </div>` : ''}
         ${body}
       </div>`;
   }
 
-  function formationCard(f, i = 0) {
+  function learnCard(kind, f, i = 0) {
+    const K = KIND[kind];
     const p = S.progress[f.id] || 0;
-    return `<a class="card reveal" href="#/formation/${f.id}" style="--d:${i % 6}">
-      <div class="card-media">${ic('play')}</div>
+    const e = K.fem ? 'e' : '';
+    const st = kind === 'exercices' ? exStatus(f.id) : null;
+    const media = kind === 'videos' ? `<div class="card-media">${ic('play')}</div>` : `<div class="card-media ${kind === 'cours' ? 'media-cours' : 'media-ex'}">${ic(K.icon)}</div>`;
+    return `<a class="card reveal" href="#/${K.detail}/${f.id}" style="--d:${i % 6}">
+      ${media}
       <div class="card-body">
-        <div class="card-meta"><span class="badge badge-admin">${esc(f.niveau || 'Débutant')}</span>${f.duree ? `<span>${ic('clock', 'icon')} ${esc(f.duree)}</span>` : ''}</div>
+        <div class="card-meta"><span class="badge badge-admin">${esc(f.niveau || 'Débutant')}</span>${f.parcours ? `<span>${esc(f.parcours)}</span>` : ''}${f.duree || f.temps ? `<span>${esc(f.duree || f.temps)}</span>` : ''}</div>
         <h3>${esc(f.titre)}</h3>
-        <p class="small muted">${esc(f.description).slice(0, 120)}</p>
-        ${S.user ? `<div class="progress" role="progressbar" aria-valuenow="${p}" aria-valuemin="0" aria-valuemax="100" aria-label="Progression"><i style="width:${p}%"></i></div><span class="tiny muted">${p >= 100 ? 'Terminée' : p > 0 ? 'En cours' : 'Pas encore commencée'}</span>` : ''}
+        <p class="small muted">${esc((f.description || f.consigne || '').slice(0, 120))}</p>
+        ${K.track && S.user ? `<div class="progress" role="progressbar" aria-valuenow="${p}" aria-valuemin="0" aria-valuemax="100" aria-label="Progression"><i style="width:${p}%"></i></div><span class="tiny muted">${p >= 100 ? 'Terminé' + e : p > 0 ? 'En cours' : 'Pas encore commencé' + e}</span>` : ''}
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${st && accessOf(kind, f).ok ? `<span class="badge ${st.cls}">${st.t}</span>` : ''}${creditBadge(kind, f)}</div>
       </div></a>`;
   }
 
-  function viewFormation(p) {
-    const f = S.data.formations.find(x => x.id === p.a);
+  // ---------- Fiche : cours ou video ----------
+  function viewTrack(kind, p) {
+    const K = KIND[kind];
+    const f = S.data[kind].find(x => x.id === p.a);
     if (!f) return viewNotFound();
     const prog = S.progress[f.id] || 0;
-    return `<div class="container detail-grid">
+    const e = K.fem ? 'e' : '';
+    const acc = accessOf(kind, f);
+    const top = !acc.ok ? '' : kind === 'videos'
+      ? `<div class="player" style="margin-top:16px">${f.video ? `<a class="po-btn" href="${esc(f.video)}" target="_blank" rel="noopener" aria-label="Lire la vidéo">${PLAY_SVG}</a>` : `<div style="display:grid;justify-items:center;gap:12px"><span class="po-btn" aria-hidden="true">${PLAY_SVG}</span><span class="small">Vidéo bientôt en ligne</span></div>`}</div>`
+      : '';
+    const body = !acc.ok ? `<p class="lead" style="margin:20px 0 28px">${esc(f.description)}</p>${lockPanel(kind, f, acc)}` : kind === 'cours'
+      ? `<p class="lead" style="margin:20px 0 32px">${esc(f.description)}</p>${f.contenu ? `<div class="lesson">${esc(f.contenu)}</div>` : '<p class="muted">Le contenu de ce cours arrive bientôt.</p>'}`
+      : `<p class="measure" style="white-space:pre-line;margin-top:20px">${esc(f.description)}</p>`;
+    return `${learnNav(kind)}<div class="container detail-grid">
       <div>
-        <a class="link-arrow" href="#/formations">${ic('chevron-left')}Formations</a>
-        <div class="player" style="margin-top:16px">
-          ${f.video ? `<a class="po-btn" href="${esc(f.video)}" target="_blank" rel="noopener" aria-label="Lire la vidéo"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></a>` : `<div style="display:grid;justify-items:center;gap:12px"><span class="po-btn" aria-hidden="true"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></span><span class="small">Vidéo bientôt en ligne</span></div>`}
-        </div>
-        <h1 class="display-m" style="margin-top:32px">${esc(f.titre)}</h1>
-        <div class="card-meta" style="margin:12px 0 20px"><span class="badge badge-admin">${esc(f.niveau)}</span>${f.duree ? `<span>${esc(f.duree)}</span>` : ''}<span>Publiée ${ago(f.date)}</span></div>
-        <p class="measure" style="white-space:pre-line">${esc(f.description)}</p>
+        <a class="link-arrow" href="#/${kind}">${ic('chevron-left')}${K.label}</a>
+        ${top}
+        <h1 class="display-m" style="margin-top:${kind === 'videos' ? 32 : 16}px">${esc(f.titre)}</h1>
+        <div class="card-meta" style="margin-top:12px"><span class="badge badge-admin">${esc(f.niveau || 'Débutant')}</span>${f.parcours ? `<span>${esc(f.parcours)}</span>` : ''}${f.duree ? `<span>${esc(f.duree)}</span>` : ''}<span>Publié${e} ${ago(f.date)}</span></div>
+        ${body}
       </div>
-      <aside class="panel" style="position:sticky;top:calc(var(--nav-h) + 24px)">
-        ${S.user ? `
+      <aside class="panel" style="position:sticky;top:calc(var(--nav-h) + 72px)">
+        ${!acc.ok ? lockAside(acc) : S.user ? `
           <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
             <div class="ring" style="--p:${prog}"><span>${prog}%</span></div>
-            <div><strong>${prog >= 100 ? 'Terminée' : prog > 0 ? 'En cours' : 'Pas commencée'}</strong><p class="small muted">${prog >= 100 ? 'Bravo. Montre ce que tu as construit.' : prog > 0 ? 'Tu y es presque.' : 'Ta progression sera gardée.'}</p></div>
+            <div><strong>${prog >= 100 ? 'Terminé' + e : prog > 0 ? 'En cours' : 'Pas commencé' + e}</strong><p class="small muted">${prog >= 100 ? 'Bravo. Passe à la pratique.' : prog > 0 ? 'Tu y es presque.' : 'Ta progression sera gardée.'}</p></div>
           </div>
-          ${prog >= 100 ? `<a class="btn btn-primary btn-block" href="#/projets">${ic('share-2')}Partager mon projet</a>`
-            : `<button type="button" class="btn btn-primary btn-block" data-action="progress" data-id="${f.id}">${prog > 0 ? `${ic('circle-check')}Marquer comme terminée` : `${ic('play')}Commencer`}</button>`}
+          ${prog >= 100 ? `<a class="btn btn-primary btn-block" href="#/exercices">${ic('list-checks')}Faire un exercice</a>`
+            : `<button type="button" class="btn btn-primary btn-block" data-action="progress" data-id="${f.id}" data-kind="${kind}">${prog > 0 ? `${ic('circle-check')}Marquer comme terminé${e}` : `${ic(kind === 'videos' ? 'play' : 'book-open-text')}Commencer`}</button>`}
         ` : `
           <h2 class="title-m">Garde ta progression</h2>
           <p class="small muted" style="margin:8px 0 20px">Avec un compte, tu reprends exactement où tu t'étais arrêté.</p>
           <button type="button" class="btn btn-primary btn-block" data-action="signup">Créer mon compte</button>`}
-        ${atLeast('admin') ? `<div class="menu-sep" style="margin:20px 0"></div><button type="button" class="btn btn-quiet btn-block" data-action="delete" data-type="formations" data-id="${f.id}">${ic('trash-2')}Supprimer</button>` : ''}
+        ${atLeast('admin') ? `<div class="menu-sep" style="margin:20px 0"></div><button type="button" class="btn btn-quiet btn-block" data-action="delete" data-type="${kind}" data-id="${f.id}">${ic('trash-2')}Supprimer</button>` : ''}
       </aside></div>`;
+  }
+
+  // ---------- Fiche : exercice (rendu et correction) ----------
+  function viewExercice(p) {
+    const f = S.data.exercices.find(x => x.id === p.a);
+    if (!f) return viewNotFound();
+    const st = exStatus(f.id);
+    const nb = rendusOf(f.id).length;
+    const acc = accessOf('exercices', f);
+    let side;
+    if (!acc.ok) side = lockAside(acc);
+    else if (!S.user) side = `<h2 class="title-m">Rends ton travail, reçois une correction</h2><p class="small muted" style="margin:8px 0 20px">Crée ton compte pour rendre cet exercice et suivre sa correction.</p><button type="button" class="btn btn-primary btn-block" data-action="signup">Créer mon compte</button>`;
+    else if (st.k === 'todo') side = `<span class="badge badge-member">À faire</span><p class="small muted" style="margin:12px 0 20px">Quand c'est prêt, rends ton travail : un lien et deux lignes d'explication suffisent.${S.settings.delai ? ` Correction sous ${esc(S.settings.delai)}.` : ''}</p><button type="button" class="btn btn-primary btn-block" data-action="rendre" data-id="${f.id}">${ic('arrow-right')}Rendre mon exercice</button>`;
+    else if (st.k === 'wait') side = `<span class="badge badge-gold">${ic('clock')}En attente de correction</span><p class="small muted" style="margin:12px 0 20px">Rendu ${ago(st.r.date)}. Tu seras prévenu dès que la correction arrive.</p><button type="button" class="btn btn-quiet btn-block" data-action="rendre" data-id="${f.id}">Remplacer mon rendu</button>`;
+    else side = `<span class="badge badge-success">${ic('circle-check')}Corrigé</span><div class="reply" style="margin:14px 0 20px"><div class="card-meta" style="margin-bottom:6px"><strong style="color:var(--fg)">${esc(st.r.correcteur || 'Correction')}</strong><span>${ago(st.r.corrigeLe)}</span></div><p style="white-space:pre-line">${esc(st.r.retour)}</p></div><button type="button" class="btn btn-secondary btn-block" data-action="rendre" data-id="${f.id}">Rendre une nouvelle version</button>`;
+    return `${learnNav('exercices')}<div class="container detail-grid">
+      <div>
+        <a class="link-arrow" href="#/exercices">${ic('chevron-left')}Exercices</a>
+        <h1 class="display-m" style="margin-top:16px">${esc(f.titre)}</h1>
+        <div class="card-meta" style="margin:12px 0 32px"><span class="badge badge-admin">${esc(f.niveau || 'Débutant')}</span>${f.temps ? `<span>${esc(f.temps)}</span>` : ''}${f.lie ? `<span>Met en pratique : ${esc(f.lie)}</span>` : ''}${atLeast('admin') ? `<span>${plural(nb, 'rendu', 'rendus')}</span>` : ''}</div>
+        ${acc.ok ? `<section class="panel" style="margin-bottom:16px"><h2 class="title-m" style="margin-bottom:10px">La consigne</h2><p class="lesson" style="font-size:17px">${esc(f.consigne)}</p></section>
+        <section class="panel"><h2 class="title-m" style="margin-bottom:10px">Ce que tu rends</h2><p class="lesson" style="font-size:17px">${esc(f.livrable)}</p></section>` : lockPanel('exercices', f, acc, 'Débloque cet exercice et sa correction')}
+      </div>
+      <aside class="panel" style="position:sticky;top:calc(var(--nav-h) + 72px)">${side}
+        ${atLeast('admin') ? `<div class="menu-sep" style="margin:20px 0"></div><a class="btn btn-quiet btn-block" href="#/admin/corrections">${ic('list-checks')}Voir les rendus</a><button type="button" class="btn btn-quiet btn-block" style="margin-top:8px" data-action="delete" data-type="exercices" data-id="${f.id}">${ic('trash-2')}Supprimer</button>` : ''}
+      </aside></div>`;
+  }
+
+  // ---------- Ateliers ----------
+  function viewAteliers() {
+    const now = Date.now();
+    const avenir = S.data.ateliers.filter(a => atTime(a) >= now).sort((a, b) => atTime(a) - atTime(b));
+    const passes = S.data.ateliers.filter(a => atTime(a) < now).sort((a, b) => atTime(b) - atTime(a));
+    const right = atLeast('admin') ? createBtn('ateliers', 'Nouvel atelier') : '';
+    const card = (a, past, i) => `<a class="card reveal" href="#/atelier/${a.id}" style="--d:${i % 6}">
+        <div class="card-body">
+          <div class="card-meta"><span class="badge ${past ? 'badge-member' : 'badge-gold'}">${past ? (a.lien ? 'Replay disponible' : 'Terminé') : 'À venir'}</span><span>${dateFr(a)}</span></div>
+          <h3>${esc(a.titre)}</h3>
+          ${a.description ? `<p class="small muted">${esc(a.description.slice(0, 120))}</p>` : ''}
+          <div style="display:flex;gap:6px;flex-wrap:wrap">${!past && S.user && S.watch['at-' + a.id] ? `<span class="badge badge-success">${ic('check')}Inscrit</span>` : ''}${creditBadge('ateliers', a)}</div>
+        </div></a>`;
+    const body = !S.data.ateliers.length
+      ? emptyState({ icon: 'presentation', title: 'Le premier atelier sera bientôt annoncé.', text: "Un atelier, c'est une à deux heures en direct : chacun construit son projet, on avance ensemble, et le replay reste disponible.", actions: atLeast('admin') ? createBtn('ateliers', 'Programmer le premier') : watchBtn('ateliers', 'Être prévenu') })
+      : `${avenir.length ? `<h2 class="title-l" style="margin-bottom:20px">À venir</h2><div class="grid-3" style="margin-bottom:56px">${avenir.map((a, i) => card(a, false, i)).join('')}</div>` : ''}
+         ${passes.length ? `<h2 class="title-l" style="margin-bottom:20px">Replays</h2><div class="grid-3">${passes.map((a, i) => card(a, true, i)).join('')}</div>` : ''}`;
+    return `${learnNav('ateliers')}${pageHead('Ateliers', "Deux ateliers en direct chaque semaine. Chacun avance sur son propre projet, et le replay reste.", right)}
+      <div class="container" style="padding-bottom:96px">${body}</div>`;
+  }
+
+  function viewAtelier(p) {
+    const a = S.data.ateliers.find(x => x.id === p.a);
+    if (!a) return viewNotFound();
+    const past = atTime(a) < Date.now();
+    const inscrit = !!S.watch['at-' + a.id];
+    const acc = accessOf('ateliers', a);
+    let side;
+    if (!acc.ok && !acc.guest) side = lockPanel('ateliers', a, acc, past ? 'Débloque le replay' : 'Réserve ta place');
+    else if (past) side = a.lien
+      ? `<span class="badge badge-member">Terminé</span><p class="small muted" style="margin:12px 0 20px">Le replay est disponible.</p>${S.user ? `<a class="btn btn-primary btn-block" href="${esc(a.lien)}" target="_blank" rel="noopener">${ic('play')}Voir le replay</a>` : `<button type="button" class="btn btn-primary btn-block" data-action="signup">Voir le replay</button>`}`
+      : `<span class="badge badge-member">Terminé</span><p class="small muted" style="margin-top:12px">Le replay sera ajouté ici.</p>`;
+    else if (!S.user) side = `<span class="badge badge-gold">À venir</span><p class="small muted" style="margin:12px 0 20px">Crée ton compte pour t'inscrire et recevoir le lien.</p><button type="button" class="btn btn-primary btn-block" data-action="signup">Je m'inscris</button>`;
+    else side = `<span class="badge ${inscrit ? 'badge-success' : 'badge-gold'}">${inscrit ? 'Inscrit' : 'À venir'}</span>
+      <p class="small muted" style="margin:12px 0 20px">${inscrit ? (a.lien ? 'Le lien de connexion est juste en dessous.' : 'Le lien de connexion arrive avant le début.') : 'Inscris-toi : tu recevras un rappel la veille.'}</p>
+      <button type="button" class="btn ${inscrit ? 'btn-quiet' : 'btn-primary'} btn-block" data-action="rsvp-at" data-id="${a.id}">${inscrit ? 'Me désinscrire' : "Je m'inscris"}</button>
+      ${inscrit && a.lien ? `<a class="btn btn-secondary btn-block" style="margin-top:8px" href="${esc(a.lien)}" target="_blank" rel="noopener">${ic('external-link')}Rejoindre l'atelier</a>` : ''}`;
+    return `${learnNav('ateliers')}<div class="container detail-grid">
+      <div>
+        <a class="link-arrow" href="#/ateliers">${ic('chevron-left')}Ateliers</a>
+        <h1 class="display-m" style="margin-top:16px">${esc(a.titre)}</h1>
+        <div class="card-meta" style="margin:12px 0 28px"><span class="badge badge-admin">${esc(a.format || 'En direct')}</span><span>${dateFr(a)}</span>${a.duree ? `<span>${esc(a.duree)}</span>` : ''}</div>
+        ${a.description ? `<p class="lesson" style="font-size:17px">${esc(a.description)}</p>` : ''}
+      </div>
+      <aside class="panel" style="position:sticky;top:calc(var(--nav-h) + 72px)">${side}
+        ${atLeast('admin') ? `<div class="menu-sep" style="margin:20px 0"></div><button type="button" class="btn btn-quiet btn-block" data-action="delete" data-type="ateliers" data-id="${a.id}">${ic('trash-2')}Supprimer</button>` : ''}
+      </aside></div>`;
+  }
+
+  // ---------- Console : corrections ----------
+  let corrFilter = 'a-corriger';
+  function adminCorrections() {
+    const rows = S.data.rendus.filter(r => corrFilter === 'tous' || r.statut === corrFilter);
+    return `<div class="panel reveal"><div class="panel-head"><h2>Corrections</h2>
+      <div class="seg" role="group" aria-label="Statut">${[['a-corriger', 'À corriger'], ['corrige', 'Corrigés'], ['tous', 'Tous']].map(([v, l]) => `<button type="button" data-action="corrfilter" data-v="${v}" aria-pressed="${corrFilter === v}">${l}</button>`).join('')}</div></div>
+      <p class="small muted" style="margin:-8px 0 16px">${S.settings.delai ? `Délai promis aux élèves : ${esc(S.settings.delai)}.` : "Fixe le délai de correction dans Réglages : il s'affiche aux élèves."}</p>
+      <div class="table-wrap"><table><thead><tr><th>Exercice</th><th>Élève</th><th>Rendu</th><th>Statut</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>
+      ${rows.length ? rows.map(r => `<tr><td><a href="#/exercice/${r.exId}"><strong>${esc(r.exTitre)}</strong></a></td><td>${esc(r.nom)}</td><td>${ago(r.date)}</td><td>${r.statut === 'corrige' ? '<span class="badge badge-success">Corrigé</span>' : '<span class="badge badge-gold">À corriger</span>'}</td><td style="text-align:right"><button type="button" class="btn btn-sm ${r.statut === 'corrige' ? 'btn-quiet' : 'btn-primary'}" data-action="corriger" data-id="${r.id}">${r.statut === 'corrige' ? 'Revoir' : 'Corriger'}</button></td></tr>`).join('')
+        : `<tr class="table-empty"><td colspan="5">${corrFilter === 'a-corriger' ? 'Rien à corriger. Tous les élèves ont leur retour.' : "Aucun rendu pour l'instant."}</td></tr>`}
+      </tbody></table></div></div>`;
   }
 
   // =========================================================
@@ -717,7 +1023,7 @@
           <div><div class="card-meta" style="margin-bottom:8px"><span class="eyebrow">${esc(a.theme)}</span><span>${dateLong(a.date)}</span></div>
           <h3>${esc(a.titre)}</h3><p class="muted" style="margin-top:8px;max-width:64ch">${esc(a.resume)}</p></div>
           <span class="icon-btn" aria-hidden="true">${ic('arrow-right')}</span></a>`).join('')}</div>`;
-    return `${pageHead('Articles', 'Des réponses claires aux questions que tu te poses.', right)}
+    return `${learnNav('articles')}${pageHead('Articles', 'Un nouvel article chaque semaine, sur les questions que tu te poses vraiment.', right)}
       <div class="container" style="padding-bottom:96px">
         ${all.length ? `<div class="toolbar"><div class="chips" role="group" aria-label="Filtrer par thème">${['Tous', 'Méthode', 'Outils', "Retours d'expérience"].map(n => `<button type="button" class="chip" data-action="filter" data-f="articles" data-v="${esc(n)}" aria-pressed="${filters.articles === n}">${n === 'Tous' ? 'Tous les thèmes' : n}</button>`).join('')}</div></div>` : ''}
         ${body}
@@ -733,10 +1039,10 @@
       <div class="card-meta" style="margin:24px 0 12px"><span class="eyebrow">${esc(a.theme)}</span><span>${dateLong(a.date)}</span><span>${Math.max(1, Math.round(words / 220))} min de lecture</span></div>
       <h1 class="serif" style="font-size:clamp(36px,5vw,52px);line-height:1.12;font-weight:500">${esc(a.titre)}</h1>
       <p class="lead" style="margin:24px 0 40px">${esc(a.resume)}</p>
-      <div style="white-space:pre-line;font-size:19px;line-height:1.65">${esc(a.contenu || '')}</div>
+      ${accessOf('articles', a).ok ? `<div style="white-space:pre-line;font-size:19px;line-height:1.65">${esc(a.contenu || '')}</div>` : lockPanel('articles', a, accessOf('articles', a))}
       <aside class="panel" style="margin-top:64px;display:flex;gap:20px;align-items:center;flex-wrap:wrap">
-        <div style="flex:1;min-width:220px"><strong>Tu veux le mettre en pratique ?</strong><p class="small muted">Les formations vidéo reprennent ce sujet pas à pas.</p></div>
-        <a class="btn btn-secondary" href="#/formations">Voir les formations</a>
+        <div style="flex:1;min-width:220px"><strong>Tu veux le mettre en pratique ?</strong><p class="small muted">Les cours, les vidéos et les exercices reprennent ces sujets pas à pas.</p></div>
+        <a class="btn btn-secondary" href="#/apprendre">Voir comment on apprend</a>
       </aside>
       ${atLeast('admin') ? `<button type="button" class="btn btn-quiet" style="margin-top:24px" data-action="delete" data-type="articles" data-id="${a.id}">${ic('trash-2')}Supprimer l'article</button>` : ''}
     </article>`;
@@ -751,7 +1057,7 @@
     const body = !all.length
       ? emptyState({ icon: 'sparkles', title: 'Rien de neuf pour le moment.', text: 'Chaque nouvelle formation, chaque amélioration du site sera annoncée ici.', actions: atLeast('admin') ? createBtn('nouveautes', 'Publier la première') : watchBtn('nouveautes', 'Suivre les nouveautés') })
       : `<div class="timeline">${all.map(n => `<div class="tl-item reveal"><div class="card-meta"><span class="badge badge-gold">${esc(n.type)}</span><span>${dateLong(n.date)}</span></div><h3>${esc(n.titre)}</h3><p class="muted measure" style="white-space:pre-line">${esc(n.texte)}</p>${atLeast('admin') ? `<button type="button" class="btn btn-sm btn-quiet" style="margin-top:10px" data-action="delete" data-type="nouveautes" data-id="${n.id}">${ic('trash-2')}Supprimer</button>` : ''}</div>`).join('')}</div>`;
-    return `${pageHead('Nouveautés', 'Tout ce qui arrive sur OTTOTECH, dans l\'ordre.', right)}<div class="container" style="padding-bottom:96px"><div style="max-width:760px">${body}</div></div>`;
+    return `${pageHead('Nouveautés', 'Tout ce qui arrive sur FVIA, dans l\'ordre.', right)}<div class="container" style="padding-bottom:96px"><div style="max-width:760px">${body}</div></div>`;
   }
 
   // =========================================================
@@ -870,7 +1176,7 @@
     for (let i = 0; i < startDow; i++) cells.push('<div class="cal-day out"></div>');
     for (let d = 1; d <= days; d++) {
       const iso = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const evs = S.data.evenements.filter(e => e.date === iso);
+      const evs = [...S.data.evenements, ...S.data.ateliers.map(a => ({ ...a, titre: 'Atelier : ' + a.titre }))].filter(e => e.date === iso);
       const today = d === now.getDate() && calOffset === 0;
       cells.push(`<div class="cal-day ${today ? 'today' : ''} ${evs.length ? 'has-ev' : ''}"><span class="num">${d}</span>${evs.map(e => `<span class="cal-ev" title="${esc(e.titre)}">${e.heure ? esc(e.heure) + ' ' : ''}${esc(e.titre)}</span>`).join('')}</div>`);
     }
@@ -923,7 +1229,7 @@
           <div class="panel reveal" style="padding:12px">
             <div class="level-scale">${LEVELS.map((min, i) => `<div class="level-row ${S.user && L.lv === i + 1 ? 'current' : ''}"><span class="lv">${i + 1}</span><span>Niveau ${i + 1}</span><span class="tiny muted">${min} pts</span></div>`).join('')}</div>
           </div>
-          <div class="aside-card"><h4>Comment gagner des points</h4><ol><li>Publier un message : 1 point</li><li>Chaque vote reçu : 1 point</li><li>Répondre à quelqu'un : 1 point</li><li>Partager un projet : 3 points</li><li>Terminer une formation : 10 points</li></ol></div>
+          <div class="aside-card"><h4>Comment gagner des points</h4><ol><li>Publier un message : 1 point</li><li>Chaque vote reçu : 1 point</li><li>Répondre à quelqu'un : 1 point</li><li>Partager un projet : 3 points</li><li>Rendre un exercice : 5 points</li><li>Terminer un cours ou une vidéo : 10 points</li></ol></div>
         </div>
         <div class="panel reveal">
           <div class="panel-head"><h2>Les plus actifs</h2><div class="seg" role="group" aria-label="Période">${[['7j', '7 jours'], ['30j', '30 jours'], ['toujours', 'Toujours']].map(([v, l]) => `<button type="button" data-action="lb" data-v="${v}" aria-pressed="${lbRange === v}">${l}</button>`).join('')}</div></div>
@@ -974,11 +1280,11 @@
       </section>
       <section class="container" style="padding-bottom:96px">
         <div class="offers">
-          ${offer('Communauté', 'Pour apprendre à ton rythme, entouré.', ['Toutes les formations vidéo', 'Le forum et l\'entraide', 'Les lives et leurs replays'])}
+          ${offer('Communauté', 'Pour apprendre à ton rythme, entouré.', ['Les cours, les vidéos et les exercices', 'Le forum et l\'entraide', 'Les ateliers en direct et leurs replays'])}
           ${offer('Accompagnement', 'Pour avancer vite, sans rester bloqué.', ['Tout ce que contient Communauté', 'Un retour sur chacun de tes livrables', S.settings.delai ? `Une réponse sous ${esc(S.settings.delai)}` : 'Un délai de réponse garanti', 'Un nombre de places limité pour tenir ce délai'], true)}
           ${offer('Fait avec toi', 'Pour construire ton projet ensemble.', ['Des séances individuelles', 'On construit ton outil côte à côte', 'Si tu préfères déléguer, l\'agence prend le relais'])}
         </div>
-        <p class="small muted" style="margin-top:20px;text-align:center">Tu peux commencer par la communauté et changer de formule quand tu veux.</p>
+        <p class="small muted" style="margin-top:20px;text-align:center">Sur ce site, le contenu se débloque avec des crédits. <a class="link-arrow" style="min-height:0;display:inline-flex" href="#/tarifs">Voir les packs ${ic('chevron-right')}</a></p>
         <div class="bridge" style="background:var(--deep);color:var(--on-deep);margin-top:80px">
           <p style="color:var(--on-deep-muted)"><strong style="color:var(--on-deep)">Pas le temps de le faire toi-même ?</strong> L'agence OTTOM4T3 construit pour toi ce que la formation t'apprend à faire.</p>
           <a class="btn btn-light" href="https://www.ottom4t3.com" target="_blank" rel="noopener">Voir OTTOM4T3 ${ic('external-link')}</a>
@@ -996,12 +1302,13 @@
       { t: 'Créer ton compte', done: true, href: '#/espace' },
       { t: 'Choisir ton parcours', done: !!S.quiz, href: '#/', action: 'start' },
       { t: 'Te présenter à la communauté', done: S.data.posts.some(p => p.authorEmail === email && p.salon === 'presentations'), action: 'create', type: 'posts', salon: 'presentations' },
-      { t: 'Suivre ta première leçon', done: Object.values(S.progress).some(v => v > 0), href: '#/formations' },
-      { t: 'Partager un premier projet', done: S.data.projets.some(p => p.authorEmail === email), action: 'create', type: 'projets' }
+      { t: 'Suivre ta première leçon', done: Object.values(S.progress).some(v => v > 0), href: '#/apprendre' },
+      { t: 'Rendre ton premier exercice', done: S.data.rendus.some(r => r.email === email), href: '#/exercices' }
     ];
     const doneCount = steps.filter(s => s.done).length;
     const pct = Math.round((doneCount / steps.length) * 100);
-    const inProgress = S.data.formations.filter(f => (S.progress[f.id] || 0) > 0 && S.progress[f.id] < 100);
+    const inProgress = ['cours', 'videos'].flatMap(k => S.data[k].filter(f => (S.progress[f.id] || 0) > 0 && S.progress[f.id] < 100).map(f => [k, f]));
+    const mesRendus = S.data.rendus.filter(r => r.email === email);
     const pts = pointsOf(email);
     const L = levelOf(pts);
     return `<div class="container dash">
@@ -1033,14 +1340,26 @@
           </section>
         </div>
 
+        ${role() === 'member' ? (() => { const w = wallet(); return `<section class="panel reveal">
+          <div class="panel-head"><h2>Mes crédits</h2><div style="display:flex;gap:8px;flex-wrap:wrap">${w.journal.some(j => j.d > 0 && Date.now() - j.t < 14 * 864e5) ? `<a class="btn btn-sm btn-quiet" href="#/retractation">Se rétracter du contrat ici</a>` : ''}<a class="btn btn-sm btn-primary" href="#/tarifs">${ic('coins')}Recharger</a></div></div>
+          <p><strong style="font-size:34px;letter-spacing:-0.03em">${w.solde}</strong> <span class="muted">${w.solde > 1 ? 'crédits disponibles' : 'crédit disponible'}, ${plural(w.debloques.length, 'contenu débloqué', 'contenus débloqués')}</span></p>
+          ${w.journal.length ? `<ul class="log" style="margin-top:16px">${w.journal.slice(0, 6).map(j => `<li><time>${new Date(j.t).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}</time><span><strong style="color:${j.d > 0 ? 'var(--success)' : 'var(--fg)'}">${j.d > 0 ? '+' : ''}${j.d}</strong> ${esc(j.l)}</span></li>`).join('')}</ul>` : '<p class="small muted" style="margin-top:8px">Choisis un pack, puis débloque les contenus qui t\'intéressent.</p>'}
+        </section>`; })() : ''}
+
         <section class="panel reveal">
           <div class="panel-head"><h2>Reprendre là où tu t'es arrêté</h2></div>
-          ${inProgress.length ? `<div class="grid-3">${inProgress.map(formationCard).join('')}</div>` : `<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><p class="muted" style="flex:1">Tu n'as pas de formation en cours.</p><a class="btn btn-secondary" href="#/formations">Voir les formations</a></div>`}
+          ${inProgress.length ? `<div class="grid-3">${inProgress.map(([k, f], i) => learnCard(k, f, i)).join('')}</div>` : `<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><p class="muted" style="flex:1">Tu n'as rien en cours pour l'instant.</p><a class="btn btn-secondary" href="#/apprendre">Choisir un format</a></div>`}
+        </section>
+
+        <section class="panel reveal">
+          <div class="panel-head"><h2>Mes exercices</h2>${mesRendus.length ? `<span class="small muted">${plural(mesRendus.length, 'rendu', 'rendus')}</span>` : ''}</div>
+          ${mesRendus.length ? `<div class="checklist">${mesRendus.map(r => `<a class="check-row ${r.statut === 'corrige' ? 'done' : ''}" href="#/exercice/${r.exId}"><span class="tick">${ic('check')}</span><span class="label" style="text-decoration:none">${esc(r.exTitre)}</span><span class="badge ${r.statut === 'corrige' ? 'badge-success' : 'badge-gold'}" style="margin-left:auto">${r.statut === 'corrige' ? 'Corrigé' : 'En attente de correction'}</span></a>`).join('')}</div>`
+            : `<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><p class="muted" style="flex:1">Tu n'as encore rendu aucun exercice. C'est là que tu progresses le plus vite.</p><a class="btn btn-secondary" href="#/exercices">Voir les exercices</a></div>`}
         </section>
 
         <section class="panel reveal">
           <div class="panel-head"><h2>Notifications</h2></div>
-          ${[['formations', 'Nouvelles formations', 'Dès qu\'une formation est en ligne'], ['replies', 'Réponses à mes messages', 'Quand quelqu\'un te répond dans la communauté'], ['nouveautes', 'Nouveautés', 'Le résumé des nouveautés du site']].map(([k, t, d]) => `
+          ${[['contenus', 'Nouveaux contenus', 'Dès qu\'un cours, une vidéo ou un exercice est en ligne'], ['ateliers', 'Ateliers', 'Quand un nouvel atelier est programmé'], ['replies', 'Réponses à mes messages', 'Quand quelqu\'un te répond dans la communauté'], ['nouveautes', 'Nouveautés', 'Le résumé des nouveautés du site']].map(([k, t, d]) => `
             <div class="setting"><div><strong>${t}</strong><span>${d}</span></div><label class="switch"><input type="checkbox" data-action="watch-toggle" data-k="${k}" ${S.watch[k] ? 'checked' : ''} aria-label="${t}"><span></span></label></div>`).join('')}
         </section>
       </div></div>`;
@@ -1058,14 +1377,15 @@
   // =========================================================
   // CONSOLE ADMIN
   // =========================================================
-  const ADMIN_TABS = [['admin', 'layout-dashboard', 'Vue d\'ensemble'], ['admin/contenus', 'layers', 'Contenus'], ['admin/moderation', 'shield-alert', 'Modération'], ['admin/membres', 'users', 'Membres'], ['admin/reglages', 'settings', 'Réglages']];
-  const TYPE_LABEL = { formations: 'Formation', articles: 'Article', nouveautes: 'Nouveauté', evenements: 'Événement', projets: 'Projet', posts: 'Message' };
+  const ADMIN_TABS = [['admin', 'layout-dashboard', 'Vue d\'ensemble'], ['admin/corrections', 'list-checks', 'Corrections'], ['admin/contenus', 'layers', 'Contenus'], ['admin/moderation', 'shield-alert', 'Modération'], ['admin/membres', 'users', 'Membres'], ['admin/reglages', 'settings', 'Réglages']];
+  const TYPE_LABEL = { cours: 'Cours', videos: 'Vidéo', ateliers: 'Atelier', exercices: 'Exercice', articles: 'Article', nouveautes: 'Nouveauté', evenements: 'Événement', projets: 'Projet', posts: 'Message' };
 
   function viewAdmin(p) {
     const tab = p.a || '';
     const cur = tab ? 'admin/' + tab : 'admin';
     let content;
-    if (tab === 'contenus') content = adminContenus();
+    if (tab === 'corrections') content = adminCorrections();
+    else if (tab === 'contenus') content = adminContenus();
     else if (tab === 'moderation') content = adminModeration();
     else if (tab === 'membres') content = adminMembres();
     else if (tab === 'reglages') content = adminReglages();
@@ -1076,17 +1396,20 @@
   function adminOverview() {
     const d = S.data;
     const unanswered = d.posts.filter(p => !(p.replies || []).length).length;
-    const total = d.formations.length + d.articles.length + d.nouveautes.length + d.evenements.length;
+    const total = d.cours.length + d.videos.length + d.ateliers.length + d.exercices.length + d.articles.length;
+    const aCorriger = d.rendus.filter(r => r.statut !== 'corrige').length;
     return `
       <div class="reveal"><h1 class="display-m">Console admin</h1><p class="lead" style="margin-top:8px">${total ? 'Voici où en est le site.' : 'Le site est prêt. Il ne manque que le contenu.'}</p></div>
-      <div class="kpis reveal">${[[S.members.length, 'Membres'], [d.formations.length, 'Formations'], [d.articles.length, 'Articles'], [d.posts.length, 'Messages']].map(([v, l]) => `<div class="kpi"><span class="v">${v}</span><span class="l">${l}</span></div>`).join('')}</div>
+      <div class="kpis reveal">${[[S.members.length, 'Membres'], [total, 'Contenus publiés'], [aCorriger, 'Exercices à corriger'], [d.posts.length, 'Messages']].map(([v, l]) => `<div class="kpi"><span class="v">${v}</span><span class="l">${l}</span></div>`).join('')}</div>
       <section class="panel reveal"><div class="panel-head"><h2>Publier</h2></div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">${createBtn('formations', 'Formation')}${createBtn('articles', 'Article', 'btn-secondary')}${createBtn('nouveautes', 'Nouveauté', 'btn-secondary')}${createBtn('evenements', 'Événement', 'btn-secondary')}</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">${createBtn('cours', 'Cours')}${createBtn('videos', 'Vidéo')}${createBtn('ateliers', 'Atelier', 'btn-secondary')}${createBtn('exercices', 'Exercice', 'btn-secondary')}${createBtn('articles', 'Article', 'btn-secondary')}${createBtn('nouveautes', 'Nouveauté', 'btn-secondary')}</div>
       </section>
+      ${S.retractations.length ? `<section class="panel reveal" style="border-color:var(--danger)"><div class="panel-head"><h2>Rétractations reçues</h2><span class="small muted">${plural(S.retractations.length, 'demande', 'demandes')}</span></div><ul class="log">${S.retractations.map(r => `<li><time>${new Date(r.t).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</time><span><strong>${esc(r.nom)}</strong> (${esc(r.email)}) : ${esc(r.contrat)}. Référence ${esc(r.ref)}. Remboursement à faire sous 14 jours.</span></li>`).join('')}</ul></section>` : ''}
       <section class="panel reveal"><div class="panel-head"><h2>À traiter</h2></div>
         <div class="checklist">
+          <a class="check-row ${aCorriger ? '' : 'done'}" href="#/admin/corrections"><span class="tick">${ic('check')}</span><span class="label">${aCorriger ? `${plural(aCorriger, 'exercice attend', 'exercices attendent')} une correction` : 'Aucun exercice en attente de correction'}</span><span class="go">${ic('chevron-right')}</span></a>
           <a class="check-row ${unanswered ? '' : 'done'}" href="#/communaute"><span class="tick">${ic('check')}</span><span class="label">${unanswered ? `${plural(unanswered, 'message attend', 'messages attendent')} une réponse` : 'Aucun message sans réponse'}</span><span class="go">${ic('chevron-right')}</span></a>
-          <a class="check-row ${d.formations.length ? 'done' : ''}" href="#/formations"><span class="tick">${ic('check')}</span><span class="label">Publier une première formation</span><span class="go">${ic('chevron-right')}</span></a>
+          <a class="check-row ${d.cours.length || d.videos.length ? 'done' : ''}" href="#/apprendre"><span class="tick">${ic('check')}</span><span class="label">Publier un premier cours ou une première vidéo</span><span class="go">${ic('chevron-right')}</span></a>
           <a class="check-row ${S.settings.delai ? 'done' : ''}" href="#/admin/reglages"><span class="tick">${ic('check')}</span><span class="label">Fixer le délai de réponse affiché</span><span class="go">${ic('chevron-right')}</span></a>
         </div>
       </section>`;
@@ -1094,12 +1417,13 @@
 
   let contentFilter = 'tous';
   function adminContenus() {
-    const types = ['formations', 'articles', 'nouveautes', 'evenements', 'projets'];
+    const types = ['cours', 'videos', 'ateliers', 'exercices', 'articles', 'nouveautes', 'evenements', 'projets'];
+    const PLURAL = { cours: 'Cours', videos: 'Vidéos', ateliers: 'Ateliers', exercices: 'Exercices', articles: 'Articles', nouveautes: 'Nouveautés', evenements: 'Événements', projets: 'Projets' };
     const rows = types.filter(t => contentFilter === 'tous' || contentFilter === t).flatMap(t => S.data[t].map(x => ({ ...x, _t: t }))).sort((a, b) => b.date - a.date);
-    const view = { formations: 'formation', articles: 'article' };
+    const view = { cours: 'cour', videos: 'video', ateliers: 'atelier', exercices: 'exercice', articles: 'article' };
     return `<div class="panel reveal">
       <div class="panel-head"><h2>Contenus</h2>
-        <div class="seg" role="group" aria-label="Type" style="flex-wrap:wrap">${[['tous', 'Tous'], ...types.map(t => [t, TYPE_LABEL[t] + 's'])].map(([v, l]) => `<button type="button" data-action="cfilter" data-v="${v}" aria-pressed="${contentFilter === v}">${l}</button>`).join('')}</div></div>
+        <div class="seg" role="group" aria-label="Type" style="flex-wrap:wrap">${[['tous', 'Tous'], ...types.map(t => [t, PLURAL[t]])].map(([v, l]) => `<button type="button" data-action="cfilter" data-v="${v}" aria-pressed="${contentFilter === v}">${l}</button>`).join('')}</div></div>
       <div class="table-wrap"><table><thead><tr><th>Titre</th><th>Type</th><th>Auteur</th><th>Date</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>
         ${rows.length ? rows.map(x => `<tr><td><strong>${esc(x.titre)}</strong></td><td>${TYPE_LABEL[x._t]}</td><td>${esc(x.auteur || '')}</td><td>${dateLong(x.date)}</td><td style="text-align:right;white-space:nowrap">
           ${view[x._t] ? `<a class="icon-btn" href="#/${view[x._t]}/${x.id}" aria-label="Voir">${ic('eye')}</a>` : ''}
@@ -1122,11 +1446,11 @@
   function adminMembres(godView) {
     const canRole = realRole() === 'god';
     return `<div class="panel reveal ${godView ? 'god-panel' : ''}"><div class="panel-head"><h2>${godView ? 'Rôles des comptes' : 'Membres'}</h2><span class="small muted">${plural(S.members.length, 'compte', 'comptes')}</span></div>
-      <div class="table-wrap"><table><thead><tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Inscrit</th></tr></thead><tbody>
+      <div class="table-wrap"><table><thead><tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Crédits</th><th>Inscrit</th></tr></thead><tbody>
         ${S.members.length ? S.members.map(m => `<tr><td><strong>${esc(m.name)}</strong></td><td>${esc(m.email)}</td><td>${canRole && m.email !== S.user.email
           ? `<label class="sr-only" for="role-${esc(m.email)}">Rôle de ${esc(m.name)}</label><select id="role-${esc(m.email)}" class="select" style="min-height:36px;padding:4px 10px;width:auto" data-action="set-role" data-email="${esc(m.email)}">${['member', 'admin', 'god'].map(r => `<option value="${r}" ${m.role === r ? 'selected' : ''}>${ROLE[r].label}</option>`).join('')}</select>`
-          : roleBadge(m.role)}</td><td>${dateLong(m.joined)}</td></tr>`).join('')
-        : '<tr class="table-empty"><td colspan="4">Aucun compte pour l\'instant.</td></tr>'}
+          : roleBadge(m.role)}</td><td style="white-space:nowrap">${m.role === 'member' ? `${wallet(m.email).solde} <button type="button" class="btn btn-sm btn-quiet" data-action="gift" data-email="${esc(m.email)}">${ic('gift')}Offrir</button>` : '<span class="muted">illimité</span>'}</td><td>${dateLong(m.joined)}</td></tr>`).join('')
+        : '<tr class="table-empty"><td colspan="5">Aucun compte pour l\'instant.</td></tr>'}
       </tbody></table></div></div>`;
   }
 
@@ -1136,6 +1460,16 @@
       <div class="form-grid">
         <div class="field"><label for="set-annonce">Bandeau d'annonce</label><input id="set-annonce" class="input" name="annonce" value="${esc(S.settings.annonce)}" maxlength="120" placeholder="Laisser vide pour ne rien afficher"><span class="help">Affiché en haut de toutes les pages. 120 caractères maximum.</span></div>
         <div class="field"><label for="set-delai">Délai de réponse garanti</label><input id="set-delai" class="input" name="delai" value="${esc(S.settings.delai)}" maxlength="30" placeholder="Par exemple : 24 heures ouvrées"><span class="help">Affiché sur l'accueil et dans la formule Accompagnement. N'affiche que ce que tu peux tenir.</span></div>
+        <h3 class="title-m" style="margin-top:12px">Informations légales</h3>
+        <div class="field"><label for="set-tel">Téléphone de l'éditeur</label><input id="set-tel" class="input" name="telephone" value="${esc(S.settings.telephone || '')}" inputmode="tel"><span class="help">Obligatoire dans les mentions légales pour un entrepreneur individuel (loi LCEN, article 6).</span></div>
+        <div class="field"><label for="set-med">Médiateur de la consommation</label><input id="set-med" class="input" name="mediateur" value="${esc(S.settings.mediateur || '')}" placeholder="Nom et site du médiateur"><span class="help">Obligatoire avant la première vente à un particulier. Il s'affiche dans les conditions de vente.</span></div>
+        <div class="field"><label for="set-wh">Adresse d'envoi automatique des rétractations</label><input id="set-wh" class="input" type="url" name="webhook" value="${esc(S.settings.webhook || '')}" placeholder="https://..."><span class="help">Adresse d'un webhook (par exemple n8n) qui envoie l'accusé de réception par email au client et te prévient.</span></div>
+        <h3 class="title-m" style="margin-top:12px">Crédits : coût de chaque format</h3>
+        <div class="grid-cost-form">${[['cours', 'Cours'], ['videos', 'Vidéos'], ['ateliers', 'Ateliers'], ['exercices', 'Exercices'], ['articles', 'Articles']].map(([k, l]) => `<div class="field"><label for="ct-${k}">${l}</label><input id="ct-${k}" class="input" type="number" min="0" step="1" inputmode="numeric" name="cout_${k}" value="${S.settings.cout[k]}"></div>`).join('')}</div>
+        <span class="help">0 = gratuit. Un contenu peut avoir son propre coût, réglé à sa création.</span>
+        <h3 class="title-m" style="margin-top:12px">Les 3 packs</h3>
+        ${S.settings.packs.map((p, i) => `<div class="grid-pack-form"><div class="field"><label for="pk-${i}-n">Nom</label><input id="pk-${i}-n" class="input" name="pack_${i}_nom" value="${esc(p.nom)}"></div><div class="field"><label for="pk-${i}-c">Crédits</label><input id="pk-${i}-c" class="input" type="number" min="1" step="1" name="pack_${i}_credits" value="${p.credits}"></div><div class="field"><label for="pk-${i}-p">Prix en euros</label><input id="pk-${i}-p" class="input" name="pack_${i}_prix" value="${esc(p.prix)}" placeholder="Vide : annoncé à l'ouverture"></div></div>`).join('')}
+        <div class="field" style="max-width:320px"><label for="set-bienvenue">Crédits offerts à l'inscription</label><input id="set-bienvenue" class="input" type="number" min="0" step="1" name="bienvenue" value="${S.settings.bienvenue}"><span class="help">0 par défaut. Un crédit offert permet d'essayer un contenu avant d'acheter.</span></div>
         <div><button class="btn btn-primary" type="submit">Enregistrer</button></div>
       </div></form>`;
   }
@@ -1169,7 +1503,7 @@
   }
 
   function godFlags() {
-    const F = [['forum', 'Forum', 'Les salons de discussion'], ['projets', 'Projets', 'La galerie des projets des membres'], ['evenements', 'Événements', 'Le calendrier des lives'], ['classement', 'Classement', 'Les niveaux et les points'], ['membres', 'Annuaire des membres', 'La liste publique des membres'], ['accompagnement', 'Accompagnement', 'La page des formules et ses liens']];
+    const F = [['ateliers', 'Ateliers', 'Les ateliers en direct et leurs replays'], ['exercices', 'Exercices', 'Les exercices et leur correction'], ['forum', 'Forum', 'Les salons de discussion'], ['projets', 'Projets', 'La galerie des projets des membres'], ['evenements', 'Événements', 'Le calendrier des lives'], ['classement', 'Classement', 'Les niveaux et les points'], ['membres', 'Annuaire des membres', 'La liste publique des membres'], ['accompagnement', 'Accompagnement', 'La page des formules et ses liens']];
     return `<section class="panel god-panel reveal"><div class="panel-head"><h2>Fonctionnalités</h2></div>
       <p class="small muted" style="margin-bottom:8px">Une fonction coupée disparaît de la navigation pour le public. Tu la vois toujours, signalée comme coupée.</p>
       ${F.map(([k, t, d]) => `<div class="setting"><div><strong>${t}</strong><span>${d}</span></div><label class="switch"><input type="checkbox" data-action="flag" data-k="${k}" ${S.flags[k] ? 'checked' : ''} aria-label="${t}"><span></span></label></div>`).join('')}
@@ -1199,11 +1533,145 @@
   }
 
   // =========================================================
-  // PAGES LEGALES (a rediger)
+  // PAGES LEGALES ET RETRACTATION
+  // Sources : LCEN art. 6 (mentions legales) ; Code de la consommation L221-5, L221-18,
+  // L221-21 et D221-5 (fonction de retractation obligatoire depuis le 19/06/2026,
+  // ordonnance 2026-2 et decret 2026-3), L221-28 13 (contenu numerique) ; RGPD.
   // =========================================================
+  const EDITEUR = {
+    nom: 'Kemy Guerouine',
+    statut: 'Entrepreneur individuel',
+    commercial: 'OTTOM4T3',
+    marque: "Formez-vous à l'IA (FVIA)",
+    siret: '105 919 047 00016',
+    adresse: '14 boulevard du Maréchal Leclerc, 83320 Carqueiranne, France',
+    email: 'kemy.guerouine@gmail.com'
+  };
+  const MAJ_LEGAL = '3 octobre 2026';
+  const legalNav = cur => `<nav class="legal-nav" aria-label="Informations légales">${[['mentions', 'Mentions légales'], ['cgv', 'Conditions de vente'], ['confidentialite', 'Confidentialité']].map(([k, l]) => `<a href="#/legal/${k}" ${cur === k ? 'aria-current="page"' : ''}>${l}</a>`).join('')}<a href="#/retractation" ${cur === 'retractation' ? 'aria-current="page"' : ''}>Se rétracter</a></nav>`;
+
   function viewLegal(p) {
-    const T = { mentions: 'Mentions légales', confidentialite: 'Confidentialité', cgv: 'Conditions de vente' };
-    return `<div class="gate"><div class="empty-art">${ic('scroll-text')}</div><h1 class="display-m">${T[p.a] || 'Informations légales'}</h1><p class="muted">Cette page sera publiée avant l'ouverture des inscriptions.</p><a class="btn btn-quiet" href="#/">Retour à l'accueil</a></div>`;
+    const page = p.a || 'mentions';
+    const E = EDITEUR;
+    const tel = S.settings.telephone ? `<li>Téléphone : ${esc(S.settings.telephone)}</li>` : '';
+    let title, body;
+    if (page === 'cgv') {
+      title = 'Conditions générales de vente';
+      body = `
+        <p class="legal-intro">Ces conditions s'appliquent à toute commande passée sur kemyguerouine.com à compter de l'ouverture des ventes. Version du ${MAJ_LEGAL}.</p>
+        <h2>1. Qui vend</h2>
+        <p>${E.nom}, ${E.statut.toLowerCase()} (nom commercial ${E.commercial}, marque ${E.marque}), SIRET ${E.siret}, ${E.adresse}. Contact : <a href="mailto:${E.email}">${E.email}</a>.</p>
+        <h2>2. Ce qui est vendu</h2>
+        <p>Des packs de crédits. Les crédits permettent de débloquer des contenus numériques (cours écrits, vidéos, exercices avec correction, articles payants) et de réserver des places aux ateliers en direct. Le coût en crédits de chaque contenu est affiché avant tout déblocage. Les articles et la communauté sont accessibles sans crédit.</p>
+        <p>Ces offres s'adressent aux particuliers. Un professionnel ou une entreprise qui souhaite acheter doit écrire à l'adresse ci-dessus.</p>
+        <h2>3. Prix</h2>
+        <p>Les prix sont indiqués en euros, toutes taxes comprises, sur la page des packs. Tant que l'entreprise relève de la franchise en base de TVA, la mention « TVA non applicable, article 293 B du CGI » figure sur la facture. Le prix payé est celui affiché au moment de la commande.</p>
+        <h2>4. Commande et paiement</h2>
+        <p>La commande se fait en ligne : choix du pack, acceptation des présentes conditions, paiement par carte bancaire auprès du prestataire de paiement sécurisé indiqué au moment de payer. Aucune donnée bancaire n'est conservée par le vendeur. Une confirmation de commande et la facture sont envoyées par email.</p>
+        <h2>5. Les crédits</h2>
+        <p>Les crédits sont versés sur le compte du client dès la confirmation du paiement. Ils sont personnels et ne peuvent être ni revendus ni transférés. Un contenu débloqué reste accessible depuis l'espace membre. Si le service devait cesser, le client serait prévenu par email au moins 30 jours à l'avance.</p>
+        <h2>6. Ateliers en direct</h2>
+        <p>Une place à un atelier se réserve avec des crédits. Le lien de connexion est communiqué au client inscrit. Le replay est inclus dans la réservation. Si un atelier est annulé par le vendeur, les crédits sont rendus.</p>
+        <h2>7. Exercices et corrections</h2>
+        <p>Un exercice débloqué peut être rendu par le client. La correction est écrite et rendue dans le délai indiqué sur le site au moment du rendu.</p>
+        <h2>8. Droit de rétractation</h2>
+        <p>Le client dispose de 14 jours à compter de l'achat pour se rétracter, sans avoir à se justifier (article L221-18 du Code de la consommation). Pour l'exercer, il utilise le bouton <a href="#/retractation">« Se rétracter du contrat ici »</a>, accessible en bas de chaque page et dans l'espace membre, ou envoie le formulaire ci-dessous par email. Un accusé de réception lui est remis avec la date et l'heure de sa demande.</p>
+        <p><strong>Contenus numériques.</strong> Débloquer un contenu revient à demander son exécution immédiate. Au moment du déblocage, le client donne son accord exprès et reconnaît qu'il perd son droit de rétractation pour ce contenu (article L221-28, 13° du Code de la consommation). Les crédits non utilisés restent remboursables pendant le délai de 14 jours.</p>
+        <p><strong>Remboursement.</strong> En cas de rétractation, le vendeur rembourse la valeur des crédits non utilisés (prix du pack divisé par le nombre de crédits du pack, multiplié par les crédits restants) au plus tard 14 jours après la demande, par le même moyen de paiement que celui utilisé lors de l'achat.</p>
+        <div class="legal-box"><strong>Formulaire de rétractation</strong><p>À l'attention de ${E.nom}, ${E.adresse}, ${E.email} : je vous notifie par la présente ma rétractation du contrat portant sur l'achat ci-dessous. Commandé le : ... Nom du client : ... Adresse email du compte : ... Date : ... Signature (en cas d'envoi papier) : ...</p></div>
+        <h2>9. Aucune promesse de résultat</h2>
+        <p>Les contenus enseignent une méthode. Aucun revenu, aucun résultat financier et aucun délai de réussite ne sont promis. Le vendeur est tenu d'une obligation de moyens.</p>
+        <h2>10. Propriété intellectuelle</h2>
+        <p>Les contenus sont réservés à l'usage personnel du client. Toute copie, diffusion ou revente, même partielle, est interdite.</p>
+        <h2>11. Données personnelles</h2>
+        <p>Voir la page <a href="#/legal/confidentialite">Confidentialité</a>.</p>
+        <h2>12. Réclamation et médiation</h2>
+        <p>Toute réclamation peut être adressée à ${E.email}. En cas de désaccord persistant, le client peut recourir gratuitement à un médiateur de la consommation (article L612-1 du Code de la consommation). ${S.settings.mediateur ? `Médiateur désigné : ${esc(S.settings.mediateur)}.` : 'Le médiateur désigné sera indiqué ici avant l\'ouverture des ventes.'}</p>
+        <h2>13. Droit applicable</h2>
+        <p>Ces conditions sont soumises au droit français. Le client consommateur peut saisir le tribunal de son lieu de domicile.</p>`;
+    } else if (page === 'confidentialite') {
+      title = 'Confidentialité';
+      body = `
+        <p class="legal-intro">Ce que deviennent tes données sur kemyguerouine.com. Version du ${MAJ_LEGAL}.</p>
+        <h2>Responsable du traitement</h2>
+        <p>${E.nom}, ${E.statut.toLowerCase()} (${E.commercial}), ${E.adresse}. Contact : <a href="mailto:${E.email}">${E.email}</a>.</p>
+        <h2>Ce qui est enregistré aujourd'hui</h2>
+        <p>Ton compte, ta progression, tes messages, tes rendus d'exercices et tes crédits sont enregistrés <strong>dans ton navigateur</strong> (stockage local). Ils ne sont pas envoyés à nos serveurs. Les effacer depuis les réglages de ton navigateur supprime ces données.</p>
+        <p>Si tu exerces ton droit de rétractation, les informations du formulaire (nom, email, achat concerné) nous sont transmises pour traiter ta demande, puis conservées 3 ans comme preuve.</p>
+        <h2>Services tiers</h2>
+        <ul>
+          <li>Hébergement du site : GitHub Pages (GitHub, Inc.), qui reçoit ton adresse IP pour afficher les pages.</li>
+          <li>Polices de caractères : Google Fonts (Google), qui reçoit ton adresse IP.</li>
+          <li>Icônes : jsDelivr, qui reçoit ton adresse IP.</li>
+        </ul>
+        <h2>Cookies</h2>
+        <p>Ce site n'utilise ni cookie publicitaire ni outil de mesure d'audience. Le stockage local sert uniquement au fonctionnement du site : aucun consentement n'est donc demandé.</p>
+        <h2>Tes droits</h2>
+        <p>Tu peux demander l'accès, la rectification, l'effacement ou la limitation de tes données, et t'opposer à leur traitement, en écrivant à ${E.email}. Tu peux aussi saisir la CNIL (cnil.fr).</p>`;
+    } else {
+      title = 'Mentions légales';
+      body = `
+        <p class="legal-intro">Informations prévues par l'article 6 de la loi pour la confiance dans l'économie numérique. Version du ${MAJ_LEGAL}.</p>
+        <h2>Éditeur du site</h2>
+        <ul>
+          <li>${E.nom}, ${E.statut.toLowerCase()}</li>
+          <li>Nom commercial : ${E.commercial}. Marque : ${E.marque}</li>
+          <li>SIRET : ${E.siret}</li>
+          <li>Adresse : ${E.adresse}</li>
+          <li>Email : <a href="mailto:${E.email}">${E.email}</a></li>
+          ${tel}
+        </ul>
+        <h2>Directeur de la publication</h2>
+        <p>${E.nom}.</p>
+        <h2>Hébergeur</h2>
+        <p>GitHub, Inc., 88 Colin P. Kelly Jr. Street, San Francisco, CA 94107, États-Unis (service GitHub Pages).</p>
+        <h2>Propriété intellectuelle</h2>
+        <p>Les textes, contenus pédagogiques, éléments graphiques et la marque ${E.marque} sont protégés. Toute reproduction sans autorisation écrite est interdite.</p>
+        <h2>Données personnelles</h2>
+        <p>Voir la page <a href="#/legal/confidentialite">Confidentialité</a>.</p>`;
+    }
+    return `<article class="container legal">${legalNav(page)}<h1 class="display-m">${title}</h1>${body}</article>`;
+  }
+
+  // ---------- Fonction de retractation (L221-21 et D221-5) ----------
+  let retractDone = null;
+  function viewRetractation() {
+    const w = S.user && role() === 'member' ? wallet() : null;
+    const achats = w ? w.journal.filter(j => j.d > 0 && Date.now() - j.t < 14 * 864e5) : [];
+    if (retractDone) {
+      const r = retractDone;
+      return `<article class="container legal">${legalNav('retractation')}
+        <div class="celebrate" style="text-align:left">
+          <div class="result-mark" style="margin:0 0 18px">${ic('circle-check')}</div>
+          <h1 class="display-m">Ta rétractation est enregistrée.</h1>
+          <div class="legal-box" style="margin-top:24px"><strong>Accusé de réception</strong>
+            <p>${esc(r.nom)} (${esc(r.email)}) a déclaré se rétracter du contrat suivant : ${esc(r.contrat)}.</p>
+            <p>Demande envoyée le ${new Date(r.t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })} à ${new Date(r.t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}. Référence : ${esc(r.ref)}.</p>
+            <p>Le remboursement des crédits non utilisés intervient au plus tard 14 jours après cette date.</p>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:20px">
+            <button type="button" class="btn btn-primary" data-action="retract-download">${ic('arrow-right')}Télécharger l'accusé de réception</button>
+            <a class="btn btn-secondary" href="mailto:${EDITEUR.email}?subject=${encodeURIComponent('Rétractation ' + r.ref)}&body=${encodeURIComponent(retractText(r))}">Recevoir une copie par email</a>
+          </div>
+        </div></article>`;
+    }
+    return `<article class="container legal">${legalNav('retractation')}
+      <h1 class="display-m">Se rétracter du contrat</h1>
+      <p class="legal-intro">Tu as 14 jours après ton achat pour te rétracter, sans avoir à te justifier. Les crédits non utilisés te sont remboursés.</p>
+      <form class="panel form-grid" data-form="retract" novalidate style="max-width:640px">
+        <div class="field"><label for="rt-nom">Ton nom</label><input id="rt-nom" name="nom" class="input" required autocomplete="name" value="${S.user ? esc(S.user.name) : ''}"><span class="err">${ic('triangle-alert')}Indique ton nom.</span></div>
+        <div class="field"><label for="rt-email">Email où recevoir la confirmation</label><input id="rt-email" name="email" class="input" type="email" required autocomplete="email" value="${S.user ? esc(S.user.email) : ''}"><span class="err">${ic('triangle-alert')}Cet email ne semble pas valide.</span></div>
+        <div class="field"><label for="rt-contrat">Contrat concerné</label>
+          ${achats.length ? `<select id="rt-contrat" name="contrat" class="select">${achats.map(j => `<option>${esc(j.l)}, acheté le ${new Date(j.t).toLocaleDateString('fr-FR')}</option>`).join('')}</select>`
+            : `<input id="rt-contrat" name="contrat" class="input" required placeholder="Par exemple : pack Essentiel acheté le 2 octobre"><span class="help">Le pack et la date d'achat suffisent.</span><span class="err">${ic('triangle-alert')}Précise l'achat concerné.</span>`}
+        </div>
+        <button class="btn btn-primary btn-lg" type="submit">Confirmer la rétractation</button>
+      </form>
+      <p class="small muted" style="margin-top:16px">Tu peux aussi écrire à ${EDITEUR.email}. Les contenus déjà débloqués ne sont plus rétractables (voir les <a href="#/legal/cgv">conditions de vente</a>, article 8).</p>
+    </article>`;
+  }
+  function retractText(r) {
+    return `Accusé de réception de rétractation\n\nVendeur : ${EDITEUR.nom} (${EDITEUR.commercial}), SIRET ${EDITEUR.siret}, ${EDITEUR.adresse}\nClient : ${r.nom} (${r.email})\nContrat : ${r.contrat}\nDate et heure de la demande : ${new Date(r.t).toLocaleString('fr-FR')}\nRéférence : ${r.ref}\n\nLe remboursement des crédits non utilisés intervient au plus tard 14 jours après cette date.`;
   }
 
   // =========================================================
@@ -1291,7 +1759,7 @@
         <button type="button" class="btn btn-quiet btn-block" data-action="signup">Créer un compte</button>
         <div style="text-align:center;margin-top:12px"><button type="button" class="team-link" data-action="team">${ic('key-round')}Accès équipe</button></div>${demo}`;
     } else if (mode === 'team') {
-      html += `<span class="badge badge-admin" style="margin-bottom:14px">${ic('shield-check')}Équipe</span><h2>Accès équipe</h2><p class="sub">Réservé aux administrateurs d'OTTOTECH.</p>
+      html += `<span class="badge badge-admin" style="margin-bottom:14px">${ic('shield-check')}Équipe</span><h2>Accès équipe</h2><p class="sub">Réservé aux administrateurs de FVIA.</p>
         <form class="form-grid" data-form="team" novalidate>
           ${f('tm-email', 'Email professionnel', 'email', 'autocomplete="username" required', '', 'Cet email ne semble pas valide.')}
           ${f('tm-pass', 'Mot de passe', 'password', 'autocomplete="current-password" required', '', 'Entre ton mot de passe.')}
@@ -1317,6 +1785,7 @@
     if (!m) { m = { name, email, role: r, joined: Date.now() }; S.members.push(m); }
     else if (RANK[r] > RANK[m.role]) m.role = r;
     S.user = { name: m.name, email: m.email, role: m.role };
+    if (isNew && S.settings.bienvenue > 0) { const w = wallet(m.email); w.solde += S.settings.bienvenue; w.journal.unshift({ t: Date.now(), d: S.settings.bienvenue, l: 'Offerts à l\'inscription' }); save('wallets'); }
     S.viewAs = null;
     save('user', 'members', 'viewAs');
     audit(isNew ? 'a créé son compte' : `s'est connecté (${ROLE[m.role].label})`);
@@ -1367,10 +1836,10 @@
       const id = `cf-${fd.k}`;
       let input;
       if (fd.type === 'select') {
-        const opts = fd.opts === 'salons' ? SALONS.filter(s => !s.staff || atLeast('admin')).map(s => [s.id, s.t]) : fd.opts.map(o => [o, o]);
+        const opts = fd.opts === 'salons' ? SALONS.filter(s => !s.staff || atLeast('admin')).map(s => [s.id, s.t]) : fd.opts === 'parcours' ? PARCOURS_OPTS.map(o => [o, o]) : fd.opts.map(o => [o, o]);
         input = `<select id="${id}" name="${fd.k}" class="select">${opts.map(([v, l]) => `<option value="${esc(v)}" ${presetSalon === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
       } else if (fd.type === 'textarea') input = `<textarea id="${id}" name="${fd.k}" class="textarea" rows="${fd.rows || 4}" ${fd.req ? 'required' : ''}></textarea>`;
-      else input = `<input id="${id}" name="${fd.k}" class="input" type="${fd.type || 'text'}" ${fd.req ? 'required' : ''} ${fd.ph ? `placeholder="${esc(fd.ph)}"` : ''}>`;
+      else input = `<input id="${id}" name="${fd.k}" class="input" type="${fd.type || 'text'}" ${fd.type === 'number' ? 'min="0" step="1" inputmode="numeric"' : ''} ${fd.req ? 'required' : ''} ${fd.ph ? `placeholder="${esc(fd.ph)}"` : ''}>`;
       return `<div class="field"><label for="${id}">${fd.l}${fd.req ? '' : ' <span class="muted" style="font-weight:400">(facultatif)</span>'}</label>${input}${fd.help ? `<span class="help">${fd.help}</span>` : ''}<span class="err">${ic('triangle-alert')}${fd.type === 'url' ? 'Le lien doit commencer par https://' : 'Ce champ est nécessaire.'}</span></div>`;
     }).join('');
     openLayer(`
@@ -1385,8 +1854,9 @@
   let cmdIndex = 0;
   function cmdItems(q) {
     const nav = [
-      ['Accueil', 'house', '#/'], ['Formations vidéo', 'play', '#/formations'], ['Articles', 'newspaper', '#/articles'], ['Nouveautés', 'sparkles', '#/nouveautes'],
+      ['Accueil', 'house', '#/'], ['Apprendre', 'graduation-cap', '#/apprendre'], ...LEARN.filter(learnOn).map(l => [l.t, l.icon, '#/' + l.r]), ['Nouveautés', 'sparkles', '#/nouveautes'],
       ...COMM.filter(c => S.flags[c.flag]).map(c => [c.t, c.icon, '#/' + c.r]),
+      ['Packs de crédits', 'coins', '#/tarifs'],
       ...(S.flags.accompagnement ? [['Accompagnement', 'heart-handshake', '#/accompagnement']] : []),
       ...(S.user ? [['Mon espace', 'user-round', '#/espace']] : []),
       ...(atLeast('admin') ? [['Console admin', 'layout-dashboard', '#/admin']] : []),
@@ -1396,11 +1866,14 @@
       ...(S.user ? [] : [{ t: 'Se connecter', i: 'log-in', run: () => authModal('login') }, { t: 'Créer un compte', i: 'user-plus', run: () => authModal('signup') }]),
       { t: 'Écrire dans la communauté', i: 'square-pen', run: () => openCreate('posts') },
       { t: 'Trouver mon parcours', i: 'route', run: () => startFlow() },
-      ...(atLeast('admin') ? [{ t: 'Nouvelle formation', i: 'plus', run: () => openCreate('formations') }, { t: 'Nouvel article', i: 'plus', run: () => openCreate('articles') }] : []),
+      ...(atLeast('admin') ? [{ t: 'Nouveau cours', i: 'plus', run: () => openCreate('cours') }, { t: 'Nouvelle vidéo', i: 'plus', run: () => openCreate('videos') }, { t: 'Nouvel atelier', i: 'plus', run: () => openCreate('ateliers') }, { t: 'Nouvel exercice', i: 'plus', run: () => openCreate('exercices') }, { t: 'Nouvel article', i: 'plus', run: () => openCreate('articles') }, { t: 'Exercices à corriger', i: 'list-checks', run: () => { location.hash = '#/admin/corrections'; } }] : []),
       ...(S.user ? [{ t: 'Se déconnecter', i: 'log-out', run: logout }] : [])
     ].map(a => ({ g: 'Actions', ...a }));
     const content = [
-      ...S.data.formations.map(x => ({ g: 'Contenus', t: x.titre, i: 'play', run: () => { location.hash = '#/formation/' + x.id; } })),
+      ...S.data.cours.map(x => ({ g: 'Contenus', t: x.titre, i: 'book-open-text', run: () => { location.hash = '#/cour/' + x.id; } })),
+      ...S.data.videos.map(x => ({ g: 'Contenus', t: x.titre, i: 'play', run: () => { location.hash = '#/video/' + x.id; } })),
+      ...S.data.ateliers.map(x => ({ g: 'Contenus', t: x.titre, i: 'presentation', run: () => { location.hash = '#/atelier/' + x.id; } })),
+      ...S.data.exercices.map(x => ({ g: 'Contenus', t: x.titre, i: 'list-checks', run: () => { location.hash = '#/exercice/' + x.id; } })),
       ...S.data.articles.map(x => ({ g: 'Contenus', t: x.titre, i: 'newspaper', run: () => { location.hash = '#/article/' + x.id; } })),
       ...S.data.posts.map(x => ({ g: 'Contenus', t: x.titre, i: 'message-circle', run: () => { location.hash = '#/post/' + x.id; } }))
     ];
@@ -1436,11 +1909,28 @@
 
   // ---------- Menus flottants ----------
   let megaTimer;
-  function setMega(open) {
-    const m = $('#mega');
-    const b = $('[data-action="mega"]');
-    m.classList.toggle('is-open', open);
-    if (b) b.setAttribute('aria-expanded', String(open));
+  let megaWhich = 'learn';
+  function paintMega() {
+    const r = realRole();
+    const item = (c, i) => `<a class="mega-item" href="#/${c.r}" style="--i:${i}"><span class="mi-icon">${ic(c.icon)}</span><span><strong>${c.t}</strong><span>${c.d}</span></span></a>`;
+    const learn = megaWhich === 'learn';
+    const list = learn ? LEARN.filter(learnOn) : COMM.filter(c => S.flags[c.flag] || r === 'god');
+    $('#mega').innerHTML = `
+      <div class="container mega-inner">
+        <div class="mega-intro">
+          <h3>${learn ? 'Apprendre' : 'La communauté'}</h3>
+          <p class="muted small measure">${learn ? 'Cinq formats qui se complètent. Commence par celui qui te ressemble.' : 'Un seul endroit pour poser tes questions, montrer ce que tu construis et suivre les autres.'}</p>
+          ${learn ? `<a class="link-arrow" href="#/apprendre">Vue d'ensemble ${ic('chevron-right')}</a>` : ''}
+        </div>
+        <div class="mega-col">${list.slice(0, 3).map(item).join('')}</div>
+        <div class="mega-col">${list.slice(3).map(item).join('')}</div>
+      </div>`;
+    icons();
+  }
+  function setMega(open, which) {
+    if (which && which !== megaWhich) { megaWhich = which; paintMega(); }
+    $('#mega').classList.toggle('is-open', open);
+    $$('[data-action="mega"]').forEach(b => b.setAttribute('aria-expanded', String(open && b.dataset.m === megaWhich)));
   }
   function setUserMenu(open, noFocus) {
     const m = $('#user-menu');
@@ -1474,9 +1964,9 @@
     const link = (h, i, t) => `<a class="menu-item" href="#/${h}" data-action="close-nav">${ic(i)}${t}</a>`;
     openLayer(`<button type="button" class="icon-btn modal-close" data-action="close" aria-label="Fermer">${ic('x')}</button>
       <h2 style="font-size:24px;margin-bottom:12px">Toutes les rubriques</h2>
-      ${link('formations', 'play', 'Formations vidéo')}${link('articles', 'newspaper', 'Articles')}${link('nouveautes', 'sparkles', 'Nouveautés')}
+      ${link('apprendre', 'graduation-cap', 'Apprendre')}${LEARN.filter(learnOn).map(l => link(l.r, l.icon, l.t)).join('')}${link('nouveautes', 'sparkles', 'Nouveautés')}
       <div class="menu-sep"></div>${COMM.filter(c => S.flags[c.flag]).map(c => link(c.r, c.icon, c.t)).join('')}
-      <div class="menu-sep"></div>${S.flags.accompagnement ? link('accompagnement', 'heart-handshake', 'Accompagnement') : ''}
+      <div class="menu-sep"></div>${link('tarifs', 'coins', 'Packs de crédits')}${S.flags.accompagnement ? link('accompagnement', 'heart-handshake', 'Accompagnement') : ''}
       ${atLeast('admin') ? link('admin', 'layout-dashboard', 'Console admin') : ''}${realRole() === 'god' ? link('godmode', 'crown', 'God mode') : ''}
       ${S.user ? `<button type="button" class="menu-item" data-action="logout">${ic('log-out')}Se déconnecter</button>` : `<button type="button" class="btn btn-primary btn-block" style="margin-top:12px" data-action="signup">Créer un compte</button>`}`, 'modal', 'Menu');
   }
@@ -1502,7 +1992,7 @@
     'cmd-run': el => runCmd(+el.dataset.i),
     'menu-sheet': menuSheet,
     logout: () => { closeFloating(); closeLayer(true); logout(); },
-    mega: () => { const open = !$('#mega').classList.contains('is-open'); setUserMenu(false); setMega(open); if (open) setTimeout(() => { const f = $('.mega-item'); f && f.focus(); }, 60); },
+    mega: el => { const w = el.dataset.m; const open = !($('#mega').classList.contains('is-open') && megaWhich === w); setUserMenu(false); setMega(open, w); if (open) setTimeout(() => { const f = $('.mega-item'); f && f.focus(); }, 60); },
     usermenu: () => { const open = !$('#user-menu').classList.contains('is-open'); setMega(false); setUserMenu(open); },
     'close-announce': () => { S.announceClosed = S.settings.annonce; save('announceClosed'); renderChrome(parse().name); icons(); },
     theme: el => { S.theme = el.dataset.v; save('theme'); applyTheme(); renderChrome(parse().name); icons(); setUserMenu(true, true); },
@@ -1528,7 +2018,7 @@
     'quiz-restart': () => { S.quiz = null; save('quiz'); quizStep = 0; quizAnswers = {}; startFlow(); },
     'quiz-reset': () => { S.quiz = null; save('quiz'); quizStep = 0; quizAnswers = {}; refreshQuiz(); const o = $('#quiz .option'); o && o.focus(); },
     filter: el => { filters[el.dataset.f] = el.dataset.v; render(); },
-    'reset-filters': () => { filters = { formations: 'Tous', articles: 'Tous', q: '' }; render(); },
+    'reset-filters': () => { filters = { niveau: 'Tous', parcours: 'Tous', articles: 'Tous', q: '' }; render(); },
     create: el => openCreate(el.dataset.type, el.dataset.salon),
     watch: el => {
       const k = el.dataset.k; S.watch[k] = !S.watch[k]; save('watch');
@@ -1563,21 +2053,97 @@
       if (idx < 0) return;
       const [item] = S.data[t].splice(idx, 1);
       save('data'); audit(`a supprimé ${TYPE_LABEL[t].toLowerCase()} "${item.titre}"`);
-      const onDetail = ['formation', 'article', 'post'].includes(parse().name);
-      if (onDetail) go({ formations: 'formations', articles: 'articles', posts: 'communaute' }[t] || ''); else render();
-      toast(`${TYPE_LABEL[t]} supprimé${t === 'formations' || t === 'nouveautes' ? 'e' : ''}.`, { icon: 'trash-2', undo: () => { S.data[t].splice(idx, 0, item); save('data'); audit(`a restauré "${item.titre}"`); render(); } });
+      const onDetail = ['cour', 'video', 'formation', 'atelier', 'exercice', 'article', 'post'].includes(parse().name);
+      if (onDetail) go({ cours: 'cours', videos: 'videos', ateliers: 'ateliers', exercices: 'exercices', articles: 'articles', posts: 'communaute' }[t] || ''); else render();
+      toast(`${TYPE_LABEL[t]} supprimé${t === 'videos' || t === 'nouveautes' ? 'e' : ''}.`, { icon: 'trash-2', undo: () => { S.data[t].splice(idx, 0, item); save('data'); audit(`a restauré "${item.titre}"`); render(); } });
     },
     progress: el => {
       const id = el.dataset.id; const cur = S.progress[id] || 0;
       S.progress[id] = cur > 0 ? 100 : 50; save('progress');
       if (S.progress[id] >= 100) {
-        const f = S.data.formations.find(x => x.id === id);
+        const kind = el.dataset.kind || 'videos';
+        const f = S.data[kind].find(x => x.id === id);
         render();
-        openLayer(`<div class="celebrate"><div class="result-mark">${ic('party-popper')}</div><h2>Formation terminée.</h2><p class="sub">"${esc(f ? f.titre : '')}" est dans ta poche. +10 points.</p>
-          <div class="result-actions"><button type="button" class="btn btn-primary btn-block" data-action="create" data-type="projets">${ic('share-2')}Montrer ce que j'ai construit</button><a class="btn btn-quiet btn-block" href="#/formations" data-action="close-nav">Formation suivante</a></div></div>`, 'modal', 'Formation terminée');
+        openLayer(`<div class="celebrate"><div class="result-mark">${ic('party-popper')}</div><h2>${kind === 'videos' ? 'Vidéo terminée.' : 'Cours terminé.'}</h2><p class="sub">"${esc(f ? f.titre : '')}" est dans ta poche. +10 points.</p>
+          <div class="result-actions"><a class="btn btn-primary btn-block" href="#/exercices" data-action="close-nav">${ic('list-checks')}Passer à la pratique</a><a class="btn btn-quiet btn-block" href="#/${kind}" data-action="close-nav">${kind === 'videos' ? 'Vidéo suivante' : 'Cours suivant'}</a></div></div>`, 'modal', 'Terminé');
       } else { toast('C\'est parti. Ta progression est enregistrée.', { icon: 'play' }); render(); }
     },
     sort: el => { forumSort = el.dataset.v; render(); },
+    corrfilter: el => { corrFilter = el.dataset.v; render(); },
+    'retract-download': () => {
+      if (!retractDone) return;
+      const blob = new Blob([retractText(retractDone)], { type: 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = `accuse-retractation-${retractDone.ref}.txt`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    },
+    unlock: el => {
+      // Deux temps : on confirme avant de depenser (evite un clic malheureux)
+      if (!el.dataset.armed) {
+        el.dataset.armed = '1';
+        const c = +el.dataset.cout;
+        el.innerHTML = `Confirmer : ${plural(c, 'crédit', 'crédits')}`;
+        setTimeout(() => { if (document.contains(el) && el.dataset.armed) { delete el.dataset.armed; el.innerHTML = `${ic('lock-open')}Débloquer`; icons(); } }, 4000);
+        return;
+      }
+      const kind = el.dataset.kind;
+      const item = S.data[kind].find(x => x.id === el.dataset.id);
+      if (!item) return;
+      const a = accessOf(kind, item);
+      if (a.ok) { render(); return; }
+      const w = wallet();
+      if (w.solde < a.cout) { go('tarifs'); return; }
+      w.solde -= a.cout; w.debloques.push(item.id);
+      w.journal.unshift({ t: Date.now(), d: -a.cout, l: `Débloqué : ${item.titre}` });
+      if (kind === 'ateliers') S.watch['at-' + item.id] = true;
+      save('wallets', 'watch'); audit(`a débloqué "${item.titre}" (${a.cout} crédits)`);
+      toast(`${kind === 'ateliers' ? 'Place réservée' : 'Débloqué'}. Il te reste ${plural(w.solde, 'crédit', 'crédits')}.`, { icon: 'lock-open' });
+      render();
+    },
+    buy: el => {
+      const p = S.settings.packs.find(x => x.id === el.dataset.id);
+      if (!p || !S.user || !DEMO) return;
+      const w = wallet();
+      w.solde += p.credits; w.journal.unshift({ t: Date.now(), d: p.credits, l: `Pack ${p.nom} (démo)` });
+      save('wallets'); audit(`a ajouté le pack ${p.nom} en démo`);
+      toast(`${p.credits} crédits ajoutés. Tu en as ${w.solde}.`, { icon: 'coins' }); render();
+    },
+    gift: el => {
+      const m = S.members.find(x => x.email === el.dataset.email);
+      if (!m) return;
+      openLayer(`<button type="button" class="icon-btn modal-close" data-action="close" aria-label="Fermer">${ic('x')}</button>
+        <h2>Offrir des crédits</h2><p class="sub">À ${esc(m.name)}, qui en a ${wallet(m.email).solde}.</p>
+        <form class="form-grid" data-form="gift" data-email="${esc(m.email)}" novalidate>
+          <div class="field"><label for="gf-n">Nombre de crédits</label><input id="gf-n" name="n" class="input" type="number" min="1" step="1" required value="5"><span class="err">${ic('triangle-alert')}Indique un nombre.</span></div>
+          <div class="field"><label for="gf-r">Raison <span class="muted" style="font-weight:400">(facultatif)</span></label><input id="gf-r" name="raison" class="input" placeholder="Par exemple : geste commercial"></div>
+          <button class="btn btn-primary btn-block" type="submit">${ic('gift')}Offrir</button>
+        </form>`, 'modal', 'Offrir des crédits');
+    },
+    'rsvp-at': el => { const k = 'at-' + el.dataset.id; S.watch[k] = !S.watch[k]; save('watch'); audit(`${S.watch[k] ? "s'est inscrit" : "s'est désinscrit"} à un atelier`); toast(S.watch[k] ? 'Tu es inscrit. Un rappel t\'attend la veille.' : 'Inscription annulée.', { icon: 'presentation' }); render(); },
+    rendre: el => {
+      const ex = S.data.exercices.find(x => x.id === el.dataset.id);
+      if (!ex) return;
+      if (!S.user) { authModal('signup', 'Crée ton compte pour rendre cet exercice et recevoir ta correction.'); return; }
+      openLayer(`<div class="drawer-head"><h2>Rendre l'exercice</h2><button type="button" class="icon-btn" data-action="close" aria-label="Fermer">${ic('x')}</button></div>
+        <p class="muted small">${esc(ex.titre)}</p>
+        <form class="form-grid" data-form="rendu" data-id="${ex.id}" novalidate>
+          <div class="field"><label for="rd-lien">Lien vers ton travail <span class="muted" style="font-weight:400">(facultatif)</span></label><input id="rd-lien" name="lien" class="input" type="url" placeholder="https://"><span class="help">Ton site, un document partagé, une capture...</span><span class="err">${ic('triangle-alert')}Le lien doit commencer par https://</span></div>
+          <div class="field"><label for="rd-msg">Ton explication</label><textarea id="rd-msg" name="message" class="textarea" rows="6" required></textarea><span class="help">Ce que tu as fait, et l'endroit où tu as bloqué.</span><span class="err">${ic('triangle-alert')}Écris quelques mots sur ce que tu as fait.</span></div>
+          <div style="display:flex;gap:10px;justify-content:flex-end"><button type="button" class="btn btn-quiet" data-action="close">Annuler</button><button class="btn btn-primary" type="submit">Rendre</button></div>
+        </form>`, 'drawer', "Rendre l'exercice");
+    },
+    corriger: el => {
+      const r = S.data.rendus.find(x => x.id === el.dataset.id);
+      if (!r) return;
+      openLayer(`<div class="drawer-head"><h2>Corriger</h2><button type="button" class="icon-btn" data-action="close" aria-label="Fermer">${ic('x')}</button></div>
+        <div class="card-meta"><strong style="color:var(--fg)">${esc(r.nom)}</strong><span>${esc(r.exTitre)}</span><span>rendu ${ago(r.date)}</span></div>
+        <div class="reply"><p style="white-space:pre-line">${esc(r.message)}</p>${r.lien ? `<a class="link-arrow" href="${esc(r.lien)}" target="_blank" rel="noopener">Ouvrir le travail ${ic('external-link')}</a>` : ''}</div>
+        <form class="form-grid" data-form="correction" data-id="${r.id}" novalidate>
+          <div class="field"><label for="co-retour">Ton retour</label><textarea id="co-retour" name="retour" class="textarea" rows="8" required>${esc(r.retour || '')}</textarea><span class="help">Ce qui marche, ce qui est à reprendre, et la prochaine étape.</span><span class="err">${ic('triangle-alert')}Écris ton retour avant d'envoyer.</span></div>
+          <div style="display:flex;gap:10px;justify-content:flex-end"><button type="button" class="btn btn-quiet" data-action="close">Annuler</button><button class="btn btn-primary" type="submit">Envoyer la correction</button></div>
+        </form>`, 'drawer', 'Corriger un exercice');
+    },
     lb: el => { lbRange = el.dataset.v; render(); },
     cal: el => { calOffset += +el.dataset.v; render(); },
     cfilter: el => { contentFilter = el.dataset.v; render(); },
@@ -1592,7 +2158,7 @@
     },
     demo: el => {
       const r = el.dataset.v;
-      const who = { member: { name: 'Camille Roussel', email: 'camille@demo.ottotech' }, admin: { name: 'Équipe OTTOTECH', email: 'equipe@demo.ottotech' }, god: { name: 'Kemy', email: 'kemy@demo.ottotech' } }[r];
+      const who = { member: { name: 'Camille Roussel', email: 'camille@demo.fvia' }, admin: { name: 'Équipe FVIA', email: 'equipe@demo.fvia' }, god: { name: 'Kemy', email: 'kemy@demo.fvia' } }[r];
       withLoading(el, () => signIn({ ...who, role: r }, false), 350);
     },
     forgot: () => toast('Si ce compte existe, un lien de réinitialisation vient de partir.', { icon: 'mail' }),
@@ -1703,9 +2269,42 @@
       if (fd.founder) { pendingTeam = { name, email }; authModal('otp'); }
       else signIn({ name, email, role: 'admin' }, false);
     });
+    else if (kind === 'rendu') withLoading(btn, () => {
+      const ex = S.data.exercices.find(x => x.id === form.dataset.id);
+      S.data.rendus.unshift({ id: uid(), exId: form.dataset.id, exTitre: ex ? ex.titre : '', email: S.user.email, nom: S.user.name, lien: (fd.lien || '').trim(), message: fd.message.trim(), date: Date.now(), statut: 'a-corriger' });
+      save('data'); audit(`a rendu l'exercice "${ex ? ex.titre : ''}"`);
+      closeLayer(true); toast('Exercice rendu. +5 points. Tu seras prévenu à la correction.', { icon: 'circle-check' }); render();
+    }, 400);
+    else if (kind === 'correction') {
+      const r = S.data.rendus.find(x => x.id === form.dataset.id);
+      if (!r) return;
+      r.retour = fd.retour.trim(); r.statut = 'corrige'; r.corrigeLe = Date.now(); r.correcteur = S.user.name;
+      save('data'); audit(`a corrigé l'exercice "${r.exTitre}" de ${r.nom}`);
+      closeLayer(true); toast('Correction envoyée.', { icon: 'circle-check' }); render();
+    }
+    else if (kind === 'retract') withLoading(btn, () => {
+      const r = { t: Date.now(), ref: 'R' + Date.now().toString(36).toUpperCase(), nom: fd.nom.trim(), email: fd.email.trim(), contrat: (fd.contrat || '').trim() };
+      S.retractations.unshift(r); save('retractations');
+      audit(`a demandé une rétractation (${r.ref})`);
+      if (S.settings.webhook) { try { fetch(S.settings.webhook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...r, date: new Date(r.t).toISOString(), vendeur: EDITEUR, texte: retractText(r) }) }).catch(() => {}); } catch (e) {} }
+      retractDone = r; render();
+    });
+    else if (kind === 'gift') {
+      const n = parseInt(fd.n, 10);
+      if (!(n > 0)) return;
+      const w = wallet(form.dataset.email);
+      w.solde += n; w.journal.unshift({ t: Date.now(), d: n, l: (fd.raison || '').trim() || 'Crédits offerts' });
+      save('wallets'); audit(`a offert ${n} crédits à ${form.dataset.email}`);
+      closeLayer(true); toast(`${n} crédits offerts.`, { icon: 'gift' }); render();
+    }
     else if (kind === 'waitlist') withLoading(btn, () => { S.waitlist.push(fd.email.trim().toLowerCase()); save('waitlist'); closeLayer(true); toast('C\'est noté. Un seul email, le jour de l\'ouverture.', { icon: 'bell-ring' }); });
     else if (kind === 'settings') {
       S.settings.annonce = (fd.annonce || '').trim(); S.settings.delai = (fd.delai || '').trim(); S.announceClosed = '';
+      const num = (v, d) => { const n = parseInt(v, 10); return Number.isFinite(n) && n >= 0 ? n : d; };
+      Object.keys(COUT_DEFAUT).forEach(k => { S.settings.cout[k] = num(fd['cout_' + k], S.settings.cout[k]); });
+      S.settings.packs.forEach((p, i) => { p.nom = (fd[`pack_${i}_nom`] || p.nom).trim(); p.credits = Math.max(1, num(fd[`pack_${i}_credits`], p.credits)); p.prix = (fd[`pack_${i}_prix`] || '').trim(); });
+      S.settings.bienvenue = num(fd.bienvenue, 0);
+      S.settings.telephone = (fd.telephone || '').trim(); S.settings.mediateur = (fd.mediateur || '').trim(); S.settings.webhook = (fd.webhook || '').trim();
       save('settings', 'announceClosed'); audit('a modifié les réglages du site');
       toast('Réglages enregistrés.', { icon: 'settings' }); render();
     } else if (kind === 'reply') {
@@ -1722,7 +2321,7 @@
         audit(`a publié ${TYPE_LABEL[type].toLowerCase()} "${item.titre}"`);
         closeLayer(true);
         toast(SCHEMAS[type].done + (type === 'posts' ? '. +1 point.' : type === 'projets' ? '. +3 points.' : '.'), { icon: 'circle-check' });
-        const dest = { formations: 'formation/' + item.id, articles: 'article/' + item.id, posts: 'post/' + item.id, projets: 'projets', evenements: 'evenements', nouveautes: 'nouveautes' }[type];
+        const dest = { cours: 'cour/' + item.id, videos: 'video/' + item.id, ateliers: 'atelier/' + item.id, exercices: 'exercice/' + item.id, articles: 'article/' + item.id, posts: 'post/' + item.id, projets: 'projets', evenements: 'evenements', nouveautes: 'nouveautes' }[type];
         go(dest);
       }, 400);
     }
@@ -1736,7 +2335,7 @@
     if (e.key === 'Escape') {
       if (ov) { closeLayer(); return; }
       if ($('#mega').classList.contains('is-open') || $('#user-menu').classList.contains('is-open')) {
-        const opener = $('#mega').classList.contains('is-open') ? $('[data-action="mega"]') : $('[data-action="usermenu"]');
+        const opener = $('#mega').classList.contains('is-open') ? $(`[data-action="mega"][data-m="${megaWhich}"]`) : $('[data-action="usermenu"]');
         closeFloating(); opener && opener.focus();
       }
     }
@@ -1762,7 +2361,8 @@
   // Mega menu : ouverture au survol avec intention (evite les ouvertures accidentelles)
   document.addEventListener('mouseover', e => {
     if (!window.matchMedia('(hover: hover) and (min-width: 861px)').matches) return;
-    if (e.target.closest('[data-action="mega"]')) { clearTimeout(megaTimer); megaTimer = setTimeout(() => setMega(true), 120); }
+    const mb = e.target.closest('[data-action="mega"]');
+    if (mb) { clearTimeout(megaTimer); megaTimer = setTimeout(() => setMega(true, mb.dataset.m), 120); }
     else if (e.target.closest('#mega')) clearTimeout(megaTimer);
     else if (e.target.closest('.nav-link, .brand, .nav-right') || !e.target.closest('#site-header')) { clearTimeout(megaTimer); if ($('#mega').classList.contains('is-open')) megaTimer = setTimeout(() => setMega(false), 180); }
   });
