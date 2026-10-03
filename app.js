@@ -75,13 +75,13 @@
     ['Lire les contenus publics', 'guest'],
     ['Suivre les cours et les vidéos, garder sa progression', 'member'],
     ['Rendre un exercice et recevoir sa correction', 'member'],
-    ['Débloquer un contenu avec ses crédits', 'member'],
+    ['Débloquer un contenu avec ses tokens', 'member'],
     ['Publier dans la communauté et voter', 'member'],
     ['Partager un projet', 'member'],
     ['Créer cours, vidéos, ateliers, exercices, articles', 'admin'],
     ['Corriger les exercices rendus', 'admin'],
-    ['Accéder à tout le contenu sans crédit', 'admin'],
-    ['Régler les prix, les packs et offrir des crédits', 'admin'],
+    ['Accéder à tout le contenu sans token', 'admin'],
+    ['Régler les prix, les packs et offrir des tokens', 'admin'],
     ['Modérer : épingler et supprimer', 'admin'],
     ['Voir les membres et les réglages du site', 'admin'],
     ['Activer ou couper une fonctionnalité', 'god'],
@@ -197,7 +197,7 @@
       { k: 'duree', l: 'Temps de lecture', help: 'Par exemple : 8 min' },
       { k: 'description', l: 'Résumé', type: 'textarea', req: true, help: 'Deux phrases, affichées dans la liste.' },
       { k: 'contenu', l: 'Le cours', type: 'textarea', rows: 14 },
-      { k: 'credits', l: 'Crédits pour débloquer', type: 'number', help: 'Vide : le coût par défaut du format (réglable dans Réglages). 0 : gratuit.' }
+      { k: 'credits', l: 'Tokens pour débloquer', type: 'number', help: 'Vide : le coût par défaut du format (réglable dans Réglages). 0 : gratuit.' }
     ] },
     videos: { title: 'Nouvelle vidéo', done: 'Vidéo publiée', min: 'admin', fields: [
       { k: 'titre', l: 'Titre', req: true, ph: 'Par exemple : Ta première automatisation' },
@@ -206,7 +206,7 @@
       { k: 'duree', l: 'Durée', help: 'Par exemple : 18 min' },
       { k: 'video', l: 'Lien de la vidéo', type: 'url', help: 'Facultatif. YouTube, Vimeo ou fichier.' },
       { k: 'description', l: 'Description', type: 'textarea', req: true },
-      { k: 'credits', l: 'Crédits pour débloquer', type: 'number', help: 'Vide : le coût par défaut du format (réglable dans Réglages). 0 : gratuit.' }
+      { k: 'credits', l: 'Tokens pour débloquer', type: 'number', help: 'Vide : le coût par défaut du format (réglable dans Réglages). 0 : gratuit.' }
     ] },
     ateliers: { title: 'Nouvel atelier', done: 'Atelier programmé', min: 'admin', fields: [
       { k: 'titre', l: 'Titre', req: true, ph: 'Par exemple : On met ton site en ligne' },
@@ -216,7 +216,7 @@
       { k: 'format', l: 'Format', type: 'select', opts: ['En direct', 'Replay'] },
       { k: 'lien', l: 'Lien', type: 'url', help: "Facultatif. Le lien de visio pour le direct, ou celui du replay une fois l'atelier passé." },
       { k: 'description', l: 'Ce que vous allez construire', type: 'textarea' },
-      { k: 'credits', l: 'Crédits pour débloquer', type: 'number', help: 'Vide : le coût par défaut du format (réglable dans Réglages). 0 : gratuit.' }
+      { k: 'credits', l: 'Tokens pour débloquer', type: 'number', help: 'Vide : le coût par défaut du format (réglable dans Réglages). 0 : gratuit.' }
     ] },
     exercices: { title: 'Nouvel exercice', done: 'Exercice publié', min: 'admin', fields: [
       { k: 'titre', l: 'Titre', req: true, ph: 'Par exemple : Automatise ton premier email' },
@@ -225,14 +225,14 @@
       { k: 'consigne', l: 'La consigne', type: 'textarea', req: true, rows: 6 },
       { k: 'livrable', l: 'Ce que l\'élève rend', type: 'textarea', req: true, help: 'Par exemple : le lien de ton site et une capture de la page.' },
       { k: 'lie', l: 'Cours ou vidéo lié', help: 'Facultatif. Le titre du cours que l\'exercice met en pratique.' },
-      { k: 'credits', l: 'Crédits pour débloquer', type: 'number', help: 'Vide : le coût par défaut du format (réglable dans Réglages). 0 : gratuit.' }
+      { k: 'credits', l: 'Tokens pour débloquer', type: 'number', help: 'Vide : le coût par défaut du format (réglable dans Réglages). 0 : gratuit.' }
     ] },
     articles: { title: 'Nouvel article', done: 'Article publié', min: 'admin', fields: [
       { k: 'titre', l: 'Titre', req: true },
       { k: 'theme', l: 'Thème', type: 'select', opts: ['Méthode', 'Outils', "Retours d'expérience"] },
       { k: 'resume', l: 'Résumé', type: 'textarea', req: true, help: 'Deux phrases, affichées dans la liste.' },
       { k: 'contenu', l: 'Contenu', type: 'textarea', rows: 10 },
-      { k: 'credits', l: 'Crédits pour débloquer', type: 'number', help: 'Vide : le coût par défaut du format (réglable dans Réglages). 0 : gratuit.' }
+      { k: 'credits', l: 'Tokens pour débloquer', type: 'number', help: 'Vide : le coût par défaut du format (réglable dans Réglages). 0 : gratuit.' }
     ] },
     nouveautes: { title: 'Nouvelle annonce', done: 'Nouveauté publiée', min: 'admin', fields: [
       { k: 'titre', l: 'Titre', req: true },
@@ -297,7 +297,7 @@
     classement: { v: viewClassement, t: 'Classement', flag: 'classement' },
     membres: { v: viewMembres, t: 'Membres', flag: 'membres' },
     accompagnement: { v: viewAccompagnement, t: 'Accompagnement', flag: 'accompagnement' },
-    tarifs: { v: viewTarifs, t: 'Packs de crédits' },
+    tarifs: { v: viewTarifs, t: 'Packs de tokens' },
     espace: { v: viewEspace, t: 'Mon espace', min: 'member' },
     admin: { v: viewAdmin, t: 'Console admin', min: 'admin' },
     godmode: { v: viewGod, t: 'God mode', min: 'god', real: true },
@@ -391,7 +391,7 @@
         </div>
         <div class="nav-right">
           <button type="button" class="search-trigger" data-action="cmd" aria-label="Rechercher (Ctrl K)">${ic('search')}<span class="label">Rechercher</span><span class="kbd">${/Mac/.test(navigator.platform) ? '⌘' : 'Ctrl'} K</span></button>
-          ${user && role() === 'member' ? `<a class="credit-chip" href="#/tarifs" aria-label="${wallet().solde} crédits, voir les packs">${ic('coins')}<span>${wallet().solde}</span></a>` : ''}
+          ${user && role() === 'member' ? `<a class="credit-chip" href="#/tarifs" aria-label="${wallet().solde} tokens, voir les packs">${ic('coins')}<span>${wallet().solde}</span></a>` : ''}
           ${user ? `
             <button type="button" class="user-btn" data-action="usermenu" aria-haspopup="menu" aria-expanded="false" aria-controls="user-menu" aria-label="Menu du compte de ${esc(user.name)}">
               <span class="avatar ${r === 'god' ? 'gold' : ''}">${esc(initials(user.name))}</span>${ic('chevron-down')}
@@ -428,7 +428,7 @@
           </div>
           <div><h4>Apprendre</h4><ul>${fl('apprendre', "Vue d'ensemble")}${LEARN.filter(learnOn).map(l => fl(l.r, l.t)).join('')}${fl('nouveautes', 'Nouveautés')}</ul></div>
           <div><h4>Communauté</h4><ul>${COMM.filter(c => S.flags[c.flag]).map(c => fl(c.r, c.t)).join('')}</ul></div>
-          <div><h4>Accompagnement</h4><ul>${fl('tarifs', 'Les packs de crédits')}${S.flags.accompagnement ? fl('accompagnement', 'Les formules') : ''}<li><a href="https://www.ottom4t3.com" target="_blank" rel="noopener">OTTOM4T3, fait pour toi</a></li></ul></div>
+          <div><h4>Accompagnement</h4><ul>${fl('tarifs', 'Les packs de tokens')}${S.flags.accompagnement ? fl('accompagnement', 'Les formules') : ''}<li><a href="https://www.ottom4t3.com" target="_blank" rel="noopener">OTTOM4T3, fait pour toi</a></li></ul></div>
           <div><h4>Compte</h4><ul>${user ? fl('espace', 'Mon espace') : '<li><button type="button" data-action="login">Se connecter</button></li>'}<li><button type="button" data-action="team">Accès équipe</button></li></ul></div>
         </div>
         <div class="footer-bottom">
@@ -711,14 +711,14 @@
     const a = accessOf(kind, item);
     if (a.free || a.staff) return '';
     if (a.owned) return `<span class="badge badge-success">${ic('lock-open')}Débloqué</span>`;
-    return `<span class="badge badge-member">${ic('lock')}${plural(a.cout, 'crédit', 'crédits')}</span>`;
+    return `<span class="badge badge-member">${ic('lock')}${plural(a.cout, 'token', 'tokens')}</span>`;
   };
   function lockPanel(kind, item, a, label) {
-    if (a.guest) return `<div class="lock reveal"><span class="lock-icon">${ic('lock')}</span><div class="lock-text"><strong>Réservé aux membres</strong><p class="small muted">Crée ton compte, choisis un pack de crédits et débloque ce que tu veux, quand tu veux.</p></div><div class="lock-actions"><button type="button" class="btn btn-primary" data-action="signup">Créer mon compte</button><a class="btn btn-quiet" href="#/tarifs">Voir les packs</a></div></div>`;
+    if (a.guest) return `<div class="lock reveal"><span class="lock-icon">${ic('lock')}</span><div class="lock-text"><strong>Réservé aux membres</strong><p class="small muted">Crée ton compte, choisis un pack de tokens et débloque ce que tu veux, quand tu veux.</p></div><div class="lock-actions"><button type="button" class="btn btn-primary" data-action="signup">Créer mon compte</button><a class="btn btn-quiet" href="#/tarifs">Voir les packs</a></div></div>`;
     const manque = a.cout - a.solde;
-    return `<div class="lock reveal"><span class="lock-icon">${ic('lock')}</span><div class="lock-text"><strong>${label || 'Débloque ' + KIND_OBJ[kind]} pour ${plural(a.cout, 'crédit', 'crédits')}</strong><p class="small muted">Tu as ${plural(a.solde, 'crédit', 'crédits')}. ${manque > 0 ? `Il t'en manque ${manque}.` : 'Une fois débloqué, il reste dans ton espace.'}</p></div><div class="lock-actions">${manque > 0 ? `<a class="btn btn-primary" href="#/tarifs">${ic('coins')}Recharger mes crédits</a>` : `<button type="button" class="btn btn-primary" data-action="unlock" data-kind="${kind}" data-id="${item.id}" data-cout="${a.cout}">${ic('lock-open')}Débloquer</button>`}</div>${manque > 0 ? '' : `<p class="tiny muted lock-legal">En débloquant, tu demandes l'accès immédiat à ${KIND_OBJ[kind]} et tu reconnais perdre ton droit de rétractation pour ce contenu (article L221-28 du Code de la consommation). Tes crédits non utilisés restent remboursables 14 jours.</p>`}</div>`;
+    return `<div class="lock reveal"><span class="lock-icon">${ic('lock')}</span><div class="lock-text"><strong>${label || 'Débloque ' + KIND_OBJ[kind]} pour ${plural(a.cout, 'token', 'tokens')}</strong><p class="small muted">Tu as ${plural(a.solde, 'token', 'tokens')}. ${manque > 0 ? `Il t'en manque ${manque}.` : 'Une fois débloqué, il reste dans ton espace.'}</p></div><div class="lock-actions">${manque > 0 ? `<a class="btn btn-primary" href="#/tarifs">${ic('coins')}Recharger mes tokens</a>` : `<button type="button" class="btn btn-primary" data-action="unlock" data-kind="${kind}" data-id="${item.id}" data-cout="${a.cout}">${ic('lock-open')}Débloquer</button>`}</div>${manque > 0 ? '' : `<p class="tiny muted lock-legal">En débloquant, tu demandes l'accès immédiat à ${KIND_OBJ[kind]} et tu reconnais perdre ton droit de rétractation pour ce contenu (article L221-28 du Code de la consommation). Tes tokens non utilisés restent remboursables 14 jours.</p>`}</div>`;
   }
-  const lockAside = a => `<h2 class="title-m">${plural(a.cout, 'crédit', 'crédits')}</h2><p class="small muted" style="margin:8px 0 20px">Débloqué une fois, ce contenu reste ensuite accessible dans ton espace.</p><a class="btn btn-quiet btn-block" href="#/tarifs">Comment marchent les crédits</a>`;
+  const lockAside = a => `<h2 class="title-m">${plural(a.cout, 'token', 'tokens')}</h2><p class="small muted" style="margin:8px 0 20px">Débloqué une fois, ce contenu reste ensuite accessible dans ton espace.</p><a class="btn btn-quiet btn-block" href="#/tarifs">Comment marchent les tokens</a>`;
 
   function viewTarifs() {
     const w = role() === 'member' ? wallet() : null;
@@ -731,28 +731,28 @@
     };
     const btn = p => {
       if (atLeast('admin')) return `<a class="btn btn-quiet btn-block" href="#/admin/reglages">Régler ce pack</a>`;
-      if (S.user && DEMO) return `<button type="button" class="btn btn-block ${p.reco ? 'btn-primary' : 'btn-secondary'}" data-action="buy" data-id="${p.id}">Ajouter ${p.credits} crédits (démo)</button>`;
+      if (S.user && DEMO) return `<button type="button" class="btn btn-block ${p.reco ? 'btn-primary' : 'btn-secondary'}" data-action="buy" data-id="${p.id}">Ajouter ${p.credits} tokens (démo)</button>`;
       return `<button type="button" class="btn btn-block ${p.reco ? 'btn-primary' : 'btn-secondary'}" data-action="waitlist">Être prévenu à l'ouverture</button>`;
     };
-    return `${pageHead('Les packs de crédits', "Tu paies une fois, puis tu débloques ce que tu veux, quand tu veux. Pas d'abonnement.", w ? `<a class="wallet-big" href="#/espace">${ic('coins')}<span><strong>${w.solde}</strong> ${w.solde > 1 ? 'crédits disponibles' : 'crédit disponible'}</span></a>` : '')}
+    return `${pageHead('Les packs de tokens', "Tu paies une fois, puis tu débloques ce que tu veux, quand tu veux. Pas d'abonnement.", w ? `<a class="wallet-big" href="#/espace">${ic('coins')}<span><strong>${w.solde}</strong> ${w.solde > 1 ? 'tokens disponibles' : 'token disponible'}</span></a>` : '')}
       <section class="container" style="padding-bottom:96px">
         <div class="offers">${S.settings.packs.map(p => `
           <div class="offer ${p.reco ? 'featured' : ''} reveal">
             ${p.reco ? `<span class="badge badge-god flag">${ic('star')}Recommandé</span>` : ''}
             <h3>${esc(p.nom)}</h3>
-            <p class="credits-big"><strong>${p.credits}</strong> crédits</p>
+            <p class="credits-big"><strong>${p.credits}</strong> tokens</p>
             <p class="price">${p.prix ? esc(p.prix) + ' €' : "Prix annoncé à l'ouverture"}</p>
             <ul>
               <li>${ic('check')}<span>${equiv(p.credits)}</span></li>
               <li>${ic('check')}<span>Les exercices que tu débloques sont corrigés</span></li>
-              <li>${ic('check')}<span>Les articles et la communauté, sans crédit</span></li>
+              <li>${ic('check')}<span>Les articles et la communauté, sans token</span></li>
             </ul>
             ${btn(p)}
           </div>`).join('')}</div>
         <section class="panel reveal" style="margin-top:56px">
           <h2 class="title-l" style="margin-bottom:24px">Ce que coûte chaque format</h2>
-          <div class="cost-grid">${LEARN.filter(learnOn).map(l => `<a class="cost" href="#/${l.r}"><span class="combo-icon">${ic(l.icon)}</span><strong>${l.t}</strong><span class="small muted">${c[l.r] ? plural(c[l.r], 'crédit', 'crédits') : 'Gratuit'}</span></a>`).join('')}</div>
-          <p class="small muted" style="margin-top:20px">Un contenu débloqué reste accessible dans ton espace. Les ateliers se réservent avec des crédits, le replay est inclus.</p>
+          <div class="cost-grid">${LEARN.filter(learnOn).map(l => `<a class="cost" href="#/${l.r}"><span class="combo-icon">${ic(l.icon)}</span><strong>${l.t}</strong><span class="small muted">${c[l.r] ? plural(c[l.r], 'token', 'tokens') : 'Gratuit'}</span></a>`).join('')}</div>
+          <p class="small muted" style="margin-top:20px">Un contenu débloqué reste accessible dans ton espace. Les ateliers se réservent avec des tokens, le replay est inclus.</p>
         </section>
       </section>`;
   }
@@ -1284,7 +1284,7 @@
           ${offer('Accompagnement', 'Pour avancer vite, sans rester bloqué.', ['Tout ce que contient Communauté', 'Un retour sur chacun de tes livrables', S.settings.delai ? `Une réponse sous ${esc(S.settings.delai)}` : 'Un délai de réponse garanti', 'Un nombre de places limité pour tenir ce délai'], true)}
           ${offer('Fait avec toi', 'Pour construire ton projet ensemble.', ['Des séances individuelles', 'On construit ton outil côte à côte', 'Si tu préfères déléguer, l\'agence prend le relais'])}
         </div>
-        <p class="small muted" style="margin-top:20px;text-align:center">Sur ce site, le contenu se débloque avec des crédits. <a class="link-arrow" style="min-height:0;display:inline-flex" href="#/tarifs">Voir les packs ${ic('chevron-right')}</a></p>
+        <p class="small muted" style="margin-top:20px;text-align:center">Sur ce site, le contenu se débloque avec des tokens. <a class="link-arrow" style="min-height:0;display:inline-flex" href="#/tarifs">Voir les packs ${ic('chevron-right')}</a></p>
         <div class="bridge" style="background:var(--deep);color:var(--on-deep);margin-top:80px">
           <p style="color:var(--on-deep-muted)"><strong style="color:var(--on-deep)">Pas le temps de le faire toi-même ?</strong> L'agence OTTOM4T3 construit pour toi ce que la formation t'apprend à faire.</p>
           <a class="btn btn-light" href="https://www.ottom4t3.com" target="_blank" rel="noopener">Voir OTTOM4T3 ${ic('external-link')}</a>
@@ -1341,8 +1341,8 @@
         </div>
 
         ${role() === 'member' ? (() => { const w = wallet(); return `<section class="panel reveal">
-          <div class="panel-head"><h2>Mes crédits</h2><div style="display:flex;gap:8px;flex-wrap:wrap">${w.journal.some(j => j.d > 0 && Date.now() - j.t < 14 * 864e5) ? `<a class="btn btn-sm btn-quiet" href="#/retractation">Se rétracter du contrat ici</a>` : ''}<a class="btn btn-sm btn-primary" href="#/tarifs">${ic('coins')}Recharger</a></div></div>
-          <p><strong style="font-size:34px;letter-spacing:-0.03em">${w.solde}</strong> <span class="muted">${w.solde > 1 ? 'crédits disponibles' : 'crédit disponible'}, ${plural(w.debloques.length, 'contenu débloqué', 'contenus débloqués')}</span></p>
+          <div class="panel-head"><h2>Mes tokens</h2><div style="display:flex;gap:8px;flex-wrap:wrap">${w.journal.some(j => j.d > 0 && Date.now() - j.t < 14 * 864e5) ? `<a class="btn btn-sm btn-quiet" href="#/retractation">Se rétracter du contrat ici</a>` : ''}<a class="btn btn-sm btn-primary" href="#/tarifs">${ic('coins')}Recharger</a></div></div>
+          <p><strong style="font-size:34px;letter-spacing:-0.03em">${w.solde}</strong> <span class="muted">${w.solde > 1 ? 'tokens disponibles' : 'token disponible'}, ${plural(w.debloques.length, 'contenu débloqué', 'contenus débloqués')}</span></p>
           ${w.journal.length ? `<ul class="log" style="margin-top:16px">${w.journal.slice(0, 6).map(j => `<li><time>${new Date(j.t).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}</time><span><strong style="color:${j.d > 0 ? 'var(--success)' : 'var(--fg)'}">${j.d > 0 ? '+' : ''}${j.d}</strong> ${esc(j.l)}</span></li>`).join('')}</ul>` : '<p class="small muted" style="margin-top:8px">Choisis un pack, puis débloque les contenus qui t\'intéressent.</p>'}
         </section>`; })() : ''}
 
@@ -1446,7 +1446,7 @@
   function adminMembres(godView) {
     const canRole = realRole() === 'god';
     return `<div class="panel reveal ${godView ? 'god-panel' : ''}"><div class="panel-head"><h2>${godView ? 'Rôles des comptes' : 'Membres'}</h2><span class="small muted">${plural(S.members.length, 'compte', 'comptes')}</span></div>
-      <div class="table-wrap"><table><thead><tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Crédits</th><th>Inscrit</th></tr></thead><tbody>
+      <div class="table-wrap"><table><thead><tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Tokens</th><th>Inscrit</th></tr></thead><tbody>
         ${S.members.length ? S.members.map(m => `<tr><td><strong>${esc(m.name)}</strong></td><td>${esc(m.email)}</td><td>${canRole && m.email !== S.user.email
           ? `<label class="sr-only" for="role-${esc(m.email)}">Rôle de ${esc(m.name)}</label><select id="role-${esc(m.email)}" class="select" style="min-height:36px;padding:4px 10px;width:auto" data-action="set-role" data-email="${esc(m.email)}">${['member', 'admin', 'god'].map(r => `<option value="${r}" ${m.role === r ? 'selected' : ''}>${ROLE[r].label}</option>`).join('')}</select>`
           : roleBadge(m.role)}</td><td style="white-space:nowrap">${m.role === 'member' ? `${wallet(m.email).solde} <button type="button" class="btn btn-sm btn-quiet" data-action="gift" data-email="${esc(m.email)}">${ic('gift')}Offrir</button>` : '<span class="muted">illimité</span>'}</td><td>${dateLong(m.joined)}</td></tr>`).join('')
@@ -1464,12 +1464,12 @@
         <div class="field"><label for="set-tel">Téléphone de l'éditeur</label><input id="set-tel" class="input" name="telephone" value="${esc(S.settings.telephone || '')}" inputmode="tel"><span class="help">Obligatoire dans les mentions légales pour un entrepreneur individuel (loi LCEN, article 6).</span></div>
         <div class="field"><label for="set-med">Médiateur de la consommation</label><input id="set-med" class="input" name="mediateur" value="${esc(S.settings.mediateur || '')}" placeholder="Nom et site du médiateur"><span class="help">Obligatoire avant la première vente à un particulier. Il s'affiche dans les conditions de vente.</span></div>
         <div class="field"><label for="set-wh">Adresse d'envoi automatique des rétractations</label><input id="set-wh" class="input" type="url" name="webhook" value="${esc(S.settings.webhook || '')}" placeholder="https://..."><span class="help">Adresse d'un webhook (par exemple n8n) qui envoie l'accusé de réception par email au client et te prévient.</span></div>
-        <h3 class="title-m" style="margin-top:12px">Crédits : coût de chaque format</h3>
+        <h3 class="title-m" style="margin-top:12px">Tokens : coût de chaque format</h3>
         <div class="grid-cost-form">${[['cours', 'Cours'], ['videos', 'Vidéos'], ['ateliers', 'Ateliers'], ['exercices', 'Exercices'], ['articles', 'Articles']].map(([k, l]) => `<div class="field"><label for="ct-${k}">${l}</label><input id="ct-${k}" class="input" type="number" min="0" step="1" inputmode="numeric" name="cout_${k}" value="${S.settings.cout[k]}"></div>`).join('')}</div>
         <span class="help">0 = gratuit. Un contenu peut avoir son propre coût, réglé à sa création.</span>
         <h3 class="title-m" style="margin-top:12px">Les 3 packs</h3>
-        ${S.settings.packs.map((p, i) => `<div class="grid-pack-form"><div class="field"><label for="pk-${i}-n">Nom</label><input id="pk-${i}-n" class="input" name="pack_${i}_nom" value="${esc(p.nom)}"></div><div class="field"><label for="pk-${i}-c">Crédits</label><input id="pk-${i}-c" class="input" type="number" min="1" step="1" name="pack_${i}_credits" value="${p.credits}"></div><div class="field"><label for="pk-${i}-p">Prix en euros</label><input id="pk-${i}-p" class="input" name="pack_${i}_prix" value="${esc(p.prix)}" placeholder="Vide : annoncé à l'ouverture"></div></div>`).join('')}
-        <div class="field" style="max-width:320px"><label for="set-bienvenue">Crédits offerts à l'inscription</label><input id="set-bienvenue" class="input" type="number" min="0" step="1" name="bienvenue" value="${S.settings.bienvenue}"><span class="help">0 par défaut. Un crédit offert permet d'essayer un contenu avant d'acheter.</span></div>
+        ${S.settings.packs.map((p, i) => `<div class="grid-pack-form"><div class="field"><label for="pk-${i}-n">Nom</label><input id="pk-${i}-n" class="input" name="pack_${i}_nom" value="${esc(p.nom)}"></div><div class="field"><label for="pk-${i}-c">Tokens</label><input id="pk-${i}-c" class="input" type="number" min="1" step="1" name="pack_${i}_credits" value="${p.credits}"></div><div class="field"><label for="pk-${i}-p">Prix en euros</label><input id="pk-${i}-p" class="input" name="pack_${i}_prix" value="${esc(p.prix)}" placeholder="Vide : annoncé à l'ouverture"></div></div>`).join('')}
+        <div class="field" style="max-width:320px"><label for="set-bienvenue">Tokens offerts à l'inscription</label><input id="set-bienvenue" class="input" type="number" min="0" step="1" name="bienvenue" value="${S.settings.bienvenue}"><span class="help">0 par défaut. Un token offert permet d'essayer un contenu avant d'acheter.</span></div>
         <div><button class="btn btn-primary" type="submit">Enregistrer</button></div>
       </div></form>`;
   }
@@ -1562,22 +1562,22 @@
         <h2>1. Qui vend</h2>
         <p>${E.nom}, ${E.statut.toLowerCase()} (nom commercial ${E.commercial}, marque ${E.marque}), SIRET ${E.siret}, ${E.adresse}. Contact : <a href="mailto:${E.email}">${E.email}</a>.</p>
         <h2>2. Ce qui est vendu</h2>
-        <p>Des packs de crédits. Les crédits permettent de débloquer des contenus numériques (cours écrits, vidéos, exercices avec correction, articles payants) et de réserver des places aux ateliers en direct. Le coût en crédits de chaque contenu est affiché avant tout déblocage. Les articles et la communauté sont accessibles sans crédit.</p>
+        <p>Des packs de tokens. Les tokens permettent de débloquer des contenus numériques (cours écrits, vidéos, exercices avec correction, articles payants) et de réserver des places aux ateliers en direct. Le coût en tokens de chaque contenu est affiché avant tout déblocage. Les articles et la communauté sont accessibles sans token.</p>
         <p>Ces offres s'adressent aux particuliers. Un professionnel ou une entreprise qui souhaite acheter doit écrire à l'adresse ci-dessus.</p>
         <h2>3. Prix</h2>
         <p>Les prix sont indiqués en euros, toutes taxes comprises, sur la page des packs. Tant que l'entreprise relève de la franchise en base de TVA, la mention « TVA non applicable, article 293 B du CGI » figure sur la facture. Le prix payé est celui affiché au moment de la commande.</p>
         <h2>4. Commande et paiement</h2>
         <p>La commande se fait en ligne : choix du pack, acceptation des présentes conditions, paiement par carte bancaire auprès du prestataire de paiement sécurisé indiqué au moment de payer. Aucune donnée bancaire n'est conservée par le vendeur. Une confirmation de commande et la facture sont envoyées par email.</p>
-        <h2>5. Les crédits</h2>
-        <p>Les crédits sont versés sur le compte du client dès la confirmation du paiement. Ils sont personnels et ne peuvent être ni revendus ni transférés. Un contenu débloqué reste accessible depuis l'espace membre. Si le service devait cesser, le client serait prévenu par email au moins 30 jours à l'avance.</p>
+        <h2>5. Les tokens</h2>
+        <p>Les tokens sont versés sur le compte du client dès la confirmation du paiement. Ils sont personnels et ne peuvent être ni revendus ni transférés. Un contenu débloqué reste accessible depuis l'espace membre. Si le service devait cesser, le client serait prévenu par email au moins 30 jours à l'avance.</p>
         <h2>6. Ateliers en direct</h2>
-        <p>Une place à un atelier se réserve avec des crédits. Le lien de connexion est communiqué au client inscrit. Le replay est inclus dans la réservation. Si un atelier est annulé par le vendeur, les crédits sont rendus.</p>
+        <p>Une place à un atelier se réserve avec des tokens. Le lien de connexion est communiqué au client inscrit. Le replay est inclus dans la réservation. Si un atelier est annulé par le vendeur, les tokens sont rendus.</p>
         <h2>7. Exercices et corrections</h2>
         <p>Un exercice débloqué peut être rendu par le client. La correction est écrite et rendue dans le délai indiqué sur le site au moment du rendu.</p>
         <h2>8. Droit de rétractation</h2>
         <p>Le client dispose de 14 jours à compter de l'achat pour se rétracter, sans avoir à se justifier (article L221-18 du Code de la consommation). Pour l'exercer, il utilise le bouton <a href="#/retractation">« Se rétracter du contrat ici »</a>, accessible en bas de chaque page et dans l'espace membre, ou envoie le formulaire ci-dessous par email. Un accusé de réception lui est remis avec la date et l'heure de sa demande.</p>
-        <p><strong>Contenus numériques.</strong> Débloquer un contenu revient à demander son exécution immédiate. Au moment du déblocage, le client donne son accord exprès et reconnaît qu'il perd son droit de rétractation pour ce contenu (article L221-28, 13° du Code de la consommation). Les crédits non utilisés restent remboursables pendant le délai de 14 jours.</p>
-        <p><strong>Remboursement.</strong> En cas de rétractation, le vendeur rembourse la valeur des crédits non utilisés (prix du pack divisé par le nombre de crédits du pack, multiplié par les crédits restants) au plus tard 14 jours après la demande, par le même moyen de paiement que celui utilisé lors de l'achat.</p>
+        <p><strong>Contenus numériques.</strong> Débloquer un contenu revient à demander son exécution immédiate. Au moment du déblocage, le client donne son accord exprès et reconnaît qu'il perd son droit de rétractation pour ce contenu (article L221-28, 13° du Code de la consommation). Les tokens non utilisés restent remboursables pendant le délai de 14 jours.</p>
+        <p><strong>Remboursement.</strong> En cas de rétractation, le vendeur rembourse la valeur des tokens non utilisés (prix du pack divisé par le nombre de tokens du pack, multiplié par les tokens restants) au plus tard 14 jours après la demande, par le même moyen de paiement que celui utilisé lors de l'achat.</p>
         <div class="legal-box"><strong>Formulaire de rétractation</strong><p>À l'attention de ${E.nom}, ${E.adresse}, ${E.email} : je vous notifie par la présente ma rétractation du contrat portant sur l'achat ci-dessous. Commandé le : ... Nom du client : ... Adresse email du compte : ... Date : ... Signature (en cas d'envoi papier) : ...</p></div>
         <h2>9. Aucune promesse de résultat</h2>
         <p>Les contenus enseignent une méthode. Aucun revenu, aucun résultat financier et aucun délai de réussite ne sont promis. Le vendeur est tenu d'une obligation de moyens.</p>
@@ -1596,7 +1596,7 @@
         <h2>Responsable du traitement</h2>
         <p>${E.nom}, ${E.statut.toLowerCase()} (${E.commercial}), ${E.adresse}. Contact : <a href="mailto:${E.email}">${E.email}</a>.</p>
         <h2>Ce qui est enregistré aujourd'hui</h2>
-        <p>Ton compte, ta progression, tes messages, tes rendus d'exercices et tes crédits sont enregistrés <strong>dans ton navigateur</strong> (stockage local). Ils ne sont pas envoyés à nos serveurs. Les effacer depuis les réglages de ton navigateur supprime ces données.</p>
+        <p>Ton compte, ta progression, tes messages, tes rendus d'exercices et tes tokens sont enregistrés <strong>dans ton navigateur</strong> (stockage local). Ils ne sont pas envoyés à nos serveurs. Les effacer depuis les réglages de ton navigateur supprime ces données.</p>
         <p>Si tu exerces ton droit de rétractation, les informations du formulaire (nom, email, achat concerné) nous sont transmises pour traiter ta demande, puis conservées 3 ans comme preuve.</p>
         <h2>Services tiers</h2>
         <ul>
@@ -1647,7 +1647,7 @@
           <div class="legal-box" style="margin-top:24px"><strong>Accusé de réception</strong>
             <p>${esc(r.nom)} (${esc(r.email)}) a déclaré se rétracter du contrat suivant : ${esc(r.contrat)}.</p>
             <p>Demande envoyée le ${new Date(r.t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })} à ${new Date(r.t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}. Référence : ${esc(r.ref)}.</p>
-            <p>Le remboursement des crédits non utilisés intervient au plus tard 14 jours après cette date.</p>
+            <p>Le remboursement des tokens non utilisés intervient au plus tard 14 jours après cette date.</p>
           </div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:20px">
             <button type="button" class="btn btn-primary" data-action="retract-download">${ic('arrow-right')}Télécharger l'accusé de réception</button>
@@ -1657,7 +1657,7 @@
     }
     return `<article class="container legal">${legalNav('retractation')}
       <h1 class="display-m">Se rétracter du contrat</h1>
-      <p class="legal-intro">Tu as 14 jours après ton achat pour te rétracter, sans avoir à te justifier. Les crédits non utilisés te sont remboursés.</p>
+      <p class="legal-intro">Tu as 14 jours après ton achat pour te rétracter, sans avoir à te justifier. Les tokens non utilisés te sont remboursés.</p>
       <form class="panel form-grid" data-form="retract" novalidate style="max-width:640px">
         <div class="field"><label for="rt-nom">Ton nom</label><input id="rt-nom" name="nom" class="input" required autocomplete="name" value="${S.user ? esc(S.user.name) : ''}"><span class="err">${ic('triangle-alert')}Indique ton nom.</span></div>
         <div class="field"><label for="rt-email">Email où recevoir la confirmation</label><input id="rt-email" name="email" class="input" type="email" required autocomplete="email" value="${S.user ? esc(S.user.email) : ''}"><span class="err">${ic('triangle-alert')}Cet email ne semble pas valide.</span></div>
@@ -1671,7 +1671,7 @@
     </article>`;
   }
   function retractText(r) {
-    return `Accusé de réception de rétractation\n\nVendeur : ${EDITEUR.nom} (${EDITEUR.commercial}), SIRET ${EDITEUR.siret}, ${EDITEUR.adresse}\nClient : ${r.nom} (${r.email})\nContrat : ${r.contrat}\nDate et heure de la demande : ${new Date(r.t).toLocaleString('fr-FR')}\nRéférence : ${r.ref}\n\nLe remboursement des crédits non utilisés intervient au plus tard 14 jours après cette date.`;
+    return `Accusé de réception de rétractation\n\nVendeur : ${EDITEUR.nom} (${EDITEUR.commercial}), SIRET ${EDITEUR.siret}, ${EDITEUR.adresse}\nClient : ${r.nom} (${r.email})\nContrat : ${r.contrat}\nDate et heure de la demande : ${new Date(r.t).toLocaleString('fr-FR')}\nRéférence : ${r.ref}\n\nLe remboursement des tokens non utilisés intervient au plus tard 14 jours après cette date.`;
   }
 
   // =========================================================
@@ -1856,7 +1856,7 @@
     const nav = [
       ['Accueil', 'house', '#/'], ['Apprendre', 'graduation-cap', '#/apprendre'], ...LEARN.filter(learnOn).map(l => [l.t, l.icon, '#/' + l.r]), ['Nouveautés', 'sparkles', '#/nouveautes'],
       ...COMM.filter(c => S.flags[c.flag]).map(c => [c.t, c.icon, '#/' + c.r]),
-      ['Packs de crédits', 'coins', '#/tarifs'],
+      ['Packs de tokens', 'coins', '#/tarifs'],
       ...(S.flags.accompagnement ? [['Accompagnement', 'heart-handshake', '#/accompagnement']] : []),
       ...(S.user ? [['Mon espace', 'user-round', '#/espace']] : []),
       ...(atLeast('admin') ? [['Console admin', 'layout-dashboard', '#/admin']] : []),
@@ -1966,7 +1966,7 @@
       <h2 style="font-size:24px;margin-bottom:12px">Toutes les rubriques</h2>
       ${link('apprendre', 'graduation-cap', 'Apprendre')}${LEARN.filter(learnOn).map(l => link(l.r, l.icon, l.t)).join('')}${link('nouveautes', 'sparkles', 'Nouveautés')}
       <div class="menu-sep"></div>${COMM.filter(c => S.flags[c.flag]).map(c => link(c.r, c.icon, c.t)).join('')}
-      <div class="menu-sep"></div>${link('tarifs', 'coins', 'Packs de crédits')}${S.flags.accompagnement ? link('accompagnement', 'heart-handshake', 'Accompagnement') : ''}
+      <div class="menu-sep"></div>${link('tarifs', 'coins', 'Packs de tokens')}${S.flags.accompagnement ? link('accompagnement', 'heart-handshake', 'Accompagnement') : ''}
       ${atLeast('admin') ? link('admin', 'layout-dashboard', 'Console admin') : ''}${realRole() === 'god' ? link('godmode', 'crown', 'God mode') : ''}
       ${S.user ? `<button type="button" class="menu-item" data-action="logout">${ic('log-out')}Se déconnecter</button>` : `<button type="button" class="btn btn-primary btn-block" style="margin-top:12px" data-action="signup">Créer un compte</button>`}`, 'modal', 'Menu');
   }
@@ -2083,7 +2083,7 @@
       if (!el.dataset.armed) {
         el.dataset.armed = '1';
         const c = +el.dataset.cout;
-        el.innerHTML = `Confirmer : ${plural(c, 'crédit', 'crédits')}`;
+        el.innerHTML = `Confirmer : ${plural(c, 'token', 'tokens')}`;
         setTimeout(() => { if (document.contains(el) && el.dataset.armed) { delete el.dataset.armed; el.innerHTML = `${ic('lock-open')}Débloquer`; icons(); } }, 4000);
         return;
       }
@@ -2097,8 +2097,8 @@
       w.solde -= a.cout; w.debloques.push(item.id);
       w.journal.unshift({ t: Date.now(), d: -a.cout, l: `Débloqué : ${item.titre}` });
       if (kind === 'ateliers') S.watch['at-' + item.id] = true;
-      save('wallets', 'watch'); audit(`a débloqué "${item.titre}" (${a.cout} crédits)`);
-      toast(`${kind === 'ateliers' ? 'Place réservée' : 'Débloqué'}. Il te reste ${plural(w.solde, 'crédit', 'crédits')}.`, { icon: 'lock-open' });
+      save('wallets', 'watch'); audit(`a débloqué "${item.titre}" (${a.cout} tokens)`);
+      toast(`${kind === 'ateliers' ? 'Place réservée' : 'Débloqué'}. Il te reste ${plural(w.solde, 'token', 'tokens')}.`, { icon: 'lock-open' });
       render();
     },
     buy: el => {
@@ -2107,18 +2107,18 @@
       const w = wallet();
       w.solde += p.credits; w.journal.unshift({ t: Date.now(), d: p.credits, l: `Pack ${p.nom} (démo)` });
       save('wallets'); audit(`a ajouté le pack ${p.nom} en démo`);
-      toast(`${p.credits} crédits ajoutés. Tu en as ${w.solde}.`, { icon: 'coins' }); render();
+      toast(`${p.credits} tokens ajoutés. Tu en as ${w.solde}.`, { icon: 'coins' }); render();
     },
     gift: el => {
       const m = S.members.find(x => x.email === el.dataset.email);
       if (!m) return;
       openLayer(`<button type="button" class="icon-btn modal-close" data-action="close" aria-label="Fermer">${ic('x')}</button>
-        <h2>Offrir des crédits</h2><p class="sub">À ${esc(m.name)}, qui en a ${wallet(m.email).solde}.</p>
+        <h2>Offrir des tokens</h2><p class="sub">À ${esc(m.name)}, qui en a ${wallet(m.email).solde}.</p>
         <form class="form-grid" data-form="gift" data-email="${esc(m.email)}" novalidate>
-          <div class="field"><label for="gf-n">Nombre de crédits</label><input id="gf-n" name="n" class="input" type="number" min="1" step="1" required value="5"><span class="err">${ic('triangle-alert')}Indique un nombre.</span></div>
+          <div class="field"><label for="gf-n">Nombre de tokens</label><input id="gf-n" name="n" class="input" type="number" min="1" step="1" required value="5"><span class="err">${ic('triangle-alert')}Indique un nombre.</span></div>
           <div class="field"><label for="gf-r">Raison <span class="muted" style="font-weight:400">(facultatif)</span></label><input id="gf-r" name="raison" class="input" placeholder="Par exemple : geste commercial"></div>
           <button class="btn btn-primary btn-block" type="submit">${ic('gift')}Offrir</button>
-        </form>`, 'modal', 'Offrir des crédits');
+        </form>`, 'modal', 'Offrir des tokens');
     },
     'rsvp-at': el => { const k = 'at-' + el.dataset.id; S.watch[k] = !S.watch[k]; save('watch'); audit(`${S.watch[k] ? "s'est inscrit" : "s'est désinscrit"} à un atelier`); toast(S.watch[k] ? 'Tu es inscrit. Un rappel t\'attend la veille.' : 'Inscription annulée.', { icon: 'presentation' }); render(); },
     rendre: el => {
@@ -2293,9 +2293,9 @@
       const n = parseInt(fd.n, 10);
       if (!(n > 0)) return;
       const w = wallet(form.dataset.email);
-      w.solde += n; w.journal.unshift({ t: Date.now(), d: n, l: (fd.raison || '').trim() || 'Crédits offerts' });
-      save('wallets'); audit(`a offert ${n} crédits à ${form.dataset.email}`);
-      closeLayer(true); toast(`${n} crédits offerts.`, { icon: 'gift' }); render();
+      w.solde += n; w.journal.unshift({ t: Date.now(), d: n, l: (fd.raison || '').trim() || 'Tokens offerts' });
+      save('wallets'); audit(`a offert ${n} tokens à ${form.dataset.email}`);
+      closeLayer(true); toast(`${n} tokens offerts.`, { icon: 'gift' }); render();
     }
     else if (kind === 'waitlist') withLoading(btn, () => { S.waitlist.push(fd.email.trim().toLowerCase()); save('waitlist'); closeLayer(true); toast('C\'est noté. Un seul email, le jour de l\'ouverture.', { icon: 'bell-ring' }); });
     else if (kind === 'settings') {
